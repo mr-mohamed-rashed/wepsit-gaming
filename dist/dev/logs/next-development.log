@@ -1,0 +1,5 @@
+{"timestamp":"11:44:47.099","source":"Server","level":"ERROR","message":"⨯ Error: ENOENT: no such file or directory, open 'C:\\Users\\Laptop World\\Documents\\wepsit-gaming\\dist\\dev\\server\\app\\page\\build-manifest.json'"}
+{"timestamp":"11:44:47.121","source":"Server","level":"ERROR","message":"⨯ Error: ENOENT: no such file or directory, open 'C:\\Users\\Laptop World\\Documents\\wepsit-gaming\\dist\\dev\\server\\pages\\_app\\build-manifest.json'"}
+{"timestamp":"11:44:47.152","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, open 'C:\\Users\\Laptop World\\Documents\\wepsit-gaming\\dist\\dev\\server\\app\\page\\build-manifest.json'"}
+{"timestamp":"11:44:47.171","source":"Server","level":"ERROR","message":"⨯ Error: ENOENT: no such file or directory, open 'C:\\Users\\Laptop World\\Documents\\wepsit-gaming\\dist\\dev\\server\\pages\\_app\\build-manifest.json'"}
+{"timestamp":"11:44:47.187","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, open 'C:\\Users\\Laptop World\\Documents\\wepsit-gaming\\dist\\dev\\server\\pages\\_app\\build-manifest.json'"}

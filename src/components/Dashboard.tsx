@@ -1,0 +1,1204 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Profile, DailyQuest } from '@/lib/supabase';
+import { logoutCurrentUser } from '@/app/actions/authActions';
+import { processEstimationBuyIn, processEstimationResult } from '@/app/actions/gameActions';
+import CoinCounter from './CoinCounter';
+import DailyQuests from './DailyQuests';
+import InteractionPanel from './InteractionPanel';
+import { GAMES_CONFIG } from '@/config/gamesConfig';
+
+interface DashboardProps {
+  profile: Profile;
+  dailyQuest: DailyQuest;
+  onUpdate: (updatedProfile: Profile, updatedQuest: DailyQuest) => void;
+  onLogout: () => void;
+  addToast: (message: string, type: 'success' | 'error' | 'warning') => void;
+  lang?: 'ar' | 'en';
+}
+
+interface Friend {
+  id: string;
+  name: string;
+  avatar: string;
+  status: 'online' | 'offline';
+  blocked: boolean;
+  chatHistory: { sender: 'you' | 'friend'; text: string; time: string }[];
+}
+
+interface GameSession {
+  id: string;
+  gameId: string;
+  gameTitle: string;
+  hostName: string;
+  hostAvatar: string;
+  createdAt: string;
+}
+
+interface LobbyMessage {
+  id: string;
+  senderName: string;
+  senderAvatar: string;
+  text: string;
+  time: string;
+  session?: GameSession;
+}
+
+export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, addToast, lang = 'ar' }: DashboardProps) {
+  const [activeGame, setActiveGame] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo'>('domino');
+  const [showGameModal, setShowGameModal] = useState(false);
+
+  // --- XP & LEVEL SYSTEM STATE ---
+  const [gameXp, setGameXp] = useState<Record<string, number>>({
+    chess: 0,
+    estimation: 0,
+    uno: 0,
+    'cyber-arena': 0,
+    domino: 0,
+    backgammon: 0,
+  });
+
+  // Load XP from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedXp = localStorage.getItem(`xp_data_${profile.id}`);
+      if (savedXp) {
+        try {
+          setGameXp(JSON.parse(savedXp));
+        } catch (e) {
+          console.error('Error parsing XP data:', e);
+        }
+      }
+    }
+  }, [profile.id]);
+
+  // Listen for messages from embedded game iframes (e.g. Ludo victory, close game)
+  useEffect(() => {
+    const handleGameMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'CLOSE_GAME') {
+        setShowGameModal(false);
+      } else if (event.data.type === 'LUDO_GAME_OVER') {
+        if (event.data.isHuman && event.data.coins > 0) {
+          const updatedCoins = profile.gold_coins + event.data.coins;
+          onUpdate({ ...profile, gold_coins: updatedCoins, wins: profile.wins + 1 }, dailyQuest);
+          addToast(
+            lang === 'ar'
+              ? `🎉 مبروك! فزت في بطولة اللودو وحصلت على ${event.data.coins} عملة ذهبية!`
+              : `🎉 Congratulations! You won in Ludo and earned ${event.data.coins} gold coins!`,
+            'success'
+          );
+        }
+      }
+    };
+    window.addEventListener('message', handleGameMessage);
+    return () => window.removeEventListener('message', handleGameMessage);
+  }, [profile, dailyQuest, onUpdate, addToast, lang]);
+
+  // Save XP to localStorage helper
+  const saveXpData = (updatedXp: Record<string, number>) => {
+    setGameXp(updatedXp);
+    localStorage.setItem(`xp_data_${profile.id}`, JSON.stringify(updatedXp));
+  };
+
+  // Helper to calculate Level and XP progress based on the 1.5x formula
+  const calculateLevel = (xp: number) => {
+    let level = 1;
+    let required = 100;
+    let tempXp = xp;
+    while (tempXp >= required) {
+      tempXp -= required;
+      level++;
+      required = Math.round(required * 1.5);
+    }
+    return { level, currentXp: tempXp, nextXpRequired: required };
+  };
+
+  // Individual game levels
+  const chessLevelInfo = calculateLevel(gameXp.chess || 0);
+  const estimationLevelInfo = calculateLevel(gameXp.estimation || 0);
+  const unoLevelInfo = calculateLevel(gameXp.uno || 0);
+  const cyberArenaLevelInfo = calculateLevel(gameXp['cyber-arena'] || 0);
+  const dominoLevelInfo = calculateLevel(gameXp.domino || 0);
+  const backgammonLevelInfo = calculateLevel(gameXp.backgammon || 0);
+
+  // General Level = Sum of all game levels
+  const generalLevel =
+    chessLevelInfo.level +
+    estimationLevelInfo.level +
+    unoLevelInfo.level +
+    cyberArenaLevelInfo.level +
+    dominoLevelInfo.level +
+    backgammonLevelInfo.level;
+
+  // --- FRIENDS & PRIVATE CHAT STATE ---
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [activeChatFriendId, setActiveChatFriendId] = useState<string | null>(null);
+  const [typedMessage, setTypedMessage] = useState('');
+  const [searchFriendName, setSearchFriendName] = useState('');
+
+  // Suggested users online to add
+  const suggestedPlayers = [
+    { name: lang === 'ar' ? 'البرنس طاولة' : 'Table Prince', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=prince' },
+    { name: lang === 'ar' ? 'معلم كوتشينة' : 'Card Master', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=card' },
+    { name: lang === 'ar' ? 'الملكة ياسمين' : 'Queen Yasmin', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=yasmin' },
+    { name: lang === 'ar' ? 'حريف السيجة' : 'Sega Pro', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=sega' },
+  ];
+
+  // Load and seed friends list on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedFriends = localStorage.getItem(`friends_list_${profile.id}`);
+      if (savedFriends) {
+        try {
+          setFriends(JSON.parse(savedFriends));
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        // Seed default friends
+        const defaultFriends: Friend[] = [
+          {
+            id: 'friend-ezzo',
+            name: lang === 'ar' ? 'عزت الدومينو 🤖' : 'Ezzo Domino 🤖',
+            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ezzo',
+            status: 'online',
+            blocked: false,
+            chatHistory: [
+              { sender: 'friend', text: lang === 'ar' ? 'يا هلا بالمعلم! جاهز لدور دومينو؟ ☕🀄' : 'Welcome boss! Ready for dominoes? ☕🀄', time: '12:00 PM' }
+            ],
+          },
+          {
+            id: 'friend-fared',
+            name: lang === 'ar' ? 'فريد البوت 🎲' : 'Fared Bot 🎲',
+            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=fared',
+            status: 'online',
+            blocked: false,
+            chatHistory: [],
+          },
+        ];
+        setFriends(defaultFriends);
+        localStorage.setItem(`friends_list_${profile.id}`, JSON.stringify(defaultFriends));
+      }
+    }
+  }, [profile.id, lang]);
+
+  const saveFriendsList = (updatedFriends: Friend[]) => {
+    setFriends(updatedFriends);
+    localStorage.setItem(`friends_list_${profile.id}`, JSON.stringify(updatedFriends));
+  };
+
+  // Add friend helper
+  const handleAddFriend = (name: string, avatarUrl?: string) => {
+    if (!name.trim()) return;
+    const exists = friends.some((f) => f.name.toLowerCase() === name.trim().toLowerCase());
+    if (exists) {
+      addToast(lang === 'ar' ? 'هذا اللاعب موجود بالفعل في قائمة أصدقائك!' : 'This player is already your friend!', 'warning');
+      return;
+    }
+
+    const newFriend: Friend = {
+      id: `friend-${Date.now()}`,
+      name: name.trim(),
+      avatar: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${name}`,
+      status: 'online',
+      blocked: false,
+      chatHistory: [],
+    };
+
+    const nextList = [...friends, newFriend];
+    saveFriendsList(nextList);
+    setSearchFriendName('');
+    addToast(lang === 'ar' ? `تمت إضافة ${name} لصديقك بنجاح! 🤝` : `Added ${name} to friends! 🤝`, 'success');
+  };
+
+  // Remove Friend
+  const handleRemoveFriend = (id: string) => {
+    const nextList = friends.filter((f) => f.id !== id);
+    saveFriendsList(nextList);
+    if (activeChatFriendId === id) setActiveChatFriendId(null);
+    addToast(lang === 'ar' ? 'تم إلغاء الصداقة بنجاح.' : 'Removed friend successfully.', 'success');
+  };
+
+  // Block Friend
+  const handleBlockFriend = (id: string) => {
+    const nextList = friends.map((f) => (f.id === id ? { ...f, blocked: true } : f));
+    saveFriendsList(nextList);
+    addToast(lang === 'ar' ? 'تم حظر الصديق بنجاح. 🚫' : 'Blocked friend successfully. 🚫', 'warning');
+  };
+
+  // Unblock Friend
+  const handleUnblockFriend = (id: string) => {
+    const nextList = friends.map((f) => (f.id === id ? { ...f, blocked: false } : f));
+    saveFriendsList(nextList);
+    addToast(lang === 'ar' ? 'تم إلغاء الحظر بنجاح.' : 'Unblocked friend successfully.', 'success');
+  };
+
+  // Send message
+  const handleSendMessage = () => {
+    if (!typedMessage.trim() || !activeChatFriendId) return;
+
+    const friend = friends.find((f) => f.id === activeChatFriendId);
+    if (!friend) return;
+    if (friend.blocked) {
+      addToast(lang === 'ar' ? 'لا يمكنك مراسلة صديق محظور!' : 'Cannot message a blocked user!', 'error');
+      return;
+    }
+
+    const time = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const userMsg = { sender: 'you' as const, text: typedMessage.trim(), time };
+
+    const updatedFriends = friends.map((f) => {
+      if (f.id === activeChatFriendId) {
+        return { ...f, chatHistory: [...f.chatHistory, userMsg] };
+      }
+      return f;
+    });
+
+    saveFriendsList(updatedFriends);
+    setTypedMessage('');
+
+    // Trigger auto replies from bots for funny banter!
+    setTimeout(() => {
+      const responsesAr = [
+        'تسلم يا غالي! بكرة نتقابل ونلعب جيم دومينو 151 ☕🎲',
+        'ههههه حبيب قلبي، بتحداني في أونو ولا إيه؟ 🔴',
+        'شيش بيش! الحظ معايا المرة دي يا صديقي.',
+        'العب قيم الاستميشن معايا وريك اللعب الأصلي 🎰',
+        'موجود يا معلم! دقيقة وأدخل معاك في معركة السايبر 🤖',
+      ];
+      const responsesEn = [
+        'Awesome boss! Let’s match in Dominoes 151 tomorrow ☕🎲',
+        'Haha, are you challenging me in UNO? 🔴',
+        'Always ready! Let’s play Chess RPG next.',
+        'Wait a minute, playing cyber battles right now! 🤖',
+      ];
+      const botResponseText =
+        lang === 'ar'
+          ? responsesAr[Math.floor(Math.random() * responsesAr.length)]
+          : responsesEn[Math.floor(Math.random() * responsesEn.length)];
+
+      const botMsg = { sender: 'friend' as const, text: botResponseText, time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) };
+
+      setFriends((prevFriends) => {
+        const next = prevFriends.map((f) => {
+          if (f.id === activeChatFriendId) {
+            return { ...f, chatHistory: [...f.chatHistory, botMsg] };
+          }
+          return f;
+        });
+        localStorage.setItem(`friends_list_${profile.id}`, JSON.stringify(next));
+        return next;
+      });
+    }, 1200);
+  };
+
+  // --- MATCHMAKING & GROUP CHAT LOBBY STATE ---
+  const [activeSessions, setActiveSessions] = useState<GameSession[]>([
+    {
+      id: 'session-1',
+      gameId: 'domino-game',
+      gameTitle: lang === 'ar' ? 'لعبة الدومينو' : 'Dominoes',
+      hostName: lang === 'ar' ? 'عزت الدومينو' : 'Ezzo Domino',
+      hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ezzo',
+      createdAt: '12:05 PM',
+    },
+    {
+      id: 'session-2',
+      gameId: 'uno-game',
+      gameTitle: lang === 'ar' ? 'كازينو أونو' : 'UNO Casino',
+      hostName: lang === 'ar' ? 'الملكة ياسمين' : 'Queen Yasmin',
+      hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=yasmin',
+      createdAt: '12:10 PM',
+    },
+  ]);
+
+  const [lobbyMessages, setLobbyMessages] = useState<LobbyMessage[]>([
+    {
+      id: 'lobby-1',
+      senderName: lang === 'ar' ? 'البرنس طاولة' : 'Table Prince',
+      senderAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=prince',
+      text: lang === 'ar' ? 'السلام عليكم يا شباب! مين جاهز لتحدي دومينو سريع؟' : 'Hello everyone! Who is up for a quick Dominoes match?',
+      time: '12:01 PM',
+    },
+    {
+      id: 'lobby-2',
+      senderName: lang === 'ar' ? 'عزت الدومينو' : 'Ezzo Domino',
+      senderAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ezzo',
+      text: lang === 'ar' ? 'أنا أنشأت جلسة دومينو مستني لاعب يدخل!' : 'I created a Dominoes session, waiting for someone to join!',
+      time: '12:05 PM',
+      session: {
+        id: 'session-1',
+        gameId: 'domino-game',
+        gameTitle: lang === 'ar' ? 'لعبة الدومينو' : 'Dominoes',
+        hostName: lang === 'ar' ? 'عزت الدومينو' : 'Ezzo Domino',
+        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ezzo',
+        createdAt: '12:05 PM',
+      },
+    },
+  ]);
+
+  const [lobbyText, setLobbyText] = useState('');
+  const [selectedGameForSession, setSelectedGameForSession] = useState<string>('domino-game');
+
+  // Choose game session popup list
+  const [showSessionSelectorModal, setShowSessionSelectorModal] = useState(false);
+  const [selectorSessions, setSelectorSessions] = useState<GameSession[]>([]);
+  const [selectorGameId, setSelectorGameId] = useState('');
+
+  // Handle Play Game Trigger (The Lobby Matchmaking Logic!)
+  const handlePlayGame = (gameId: string) => {
+    const targetGame = gamesList.find((g) => g.id === gameId);
+    if (!targetGame?.isReady) {
+      addToast(
+        lang === 'ar'
+          ? `🚀 لعبة [${targetGame?.title || ''}] قيد التجهيز وستنطلق قريباً جداً!`
+          : `🚀 [${targetGame?.title || ''}] is in development and coming soon!`,
+        'warning'
+      );
+      return;
+    }
+
+    const matchingSessions = activeSessions.filter((s) => s.gameId === gameId);
+
+    if (matchingSessions.length === 0) {
+      addToast(lang === 'ar' ? 'لا توجد جلسات لعب نشطة حالياً. تم إنشاء غرفة جديدة ونشرها في الشات الجماعي!' : 'No active rooms. Created a new room and posted to group lobby!', 'success');
+      handleCreateSession(gameId);
+      launchGameMode(gameId);
+    } else if (matchingSessions.length === 1) {
+      const session = matchingSessions[0];
+      addToast(lang === 'ar' ? `جاري الانضمام تلقائياً إلى جلسة [${session.hostName}]... 🎮` : `Auto-joining session hosted by [${session.hostName}]... 🎮`, 'success');
+      setActiveSessions((prev) => prev.filter((s) => s.id !== session.id));
+      launchGameMode(gameId);
+    } else {
+      setSelectorGameId(gameId);
+      setSelectorSessions(matchingSessions);
+      setShowSessionSelectorModal(true);
+    }
+  };
+
+  const launchGameMode = (gameId: string) => {
+    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' = 'chess';
+    if (gameId === 'domino-game') resolvedMode = 'domino';
+    else if (gameId === 'uno-game') resolvedMode = 'uno';
+    else if (gameId === 'estimation-game') resolvedMode = 'estimation';
+    else if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
+    else if (gameId === 'backgammon-game') resolvedMode = 'backgammon';
+    else if (gameId === 'fighter-game') resolvedMode = 'fighter';
+    else if (gameId === 'ludo-game') resolvedMode = 'ludo';
+
+    setActiveGame(resolvedMode);
+    setShowGameModal(true);
+  };
+
+  // Create Game Session manually
+  const handleCreateSession = (gameId: string) => {
+    const game = gamesList.find((g) => g.id === gameId);
+    if (!game) return;
+
+    const newSession: GameSession = {
+      id: `session-${Date.now()}`,
+      gameId: game.id,
+      gameTitle: game.title,
+      hostName: profile.username,
+      hostAvatar: profile.avatar_url,
+      createdAt: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setActiveSessions((prev) => [newSession, ...prev]);
+
+    const newMsg: LobbyMessage = {
+      id: `lobby-${Date.now()}`,
+      senderName: profile.username,
+      senderAvatar: profile.avatar_url,
+      text: lang === 'ar' ? `لقد أنشأت دور لعب جديد في لعبة [${game.title}]! انضموا إليّ.` : `Created a new game room in [${game.title}]! Join me.`,
+      time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+      session: newSession,
+    };
+
+    setLobbyMessages((prev) => [...prev, newMsg]);
+    addToast(lang === 'ar' ? 'تم نشر دور اللعب الخاص بك في الشات الجماعي!' : 'Game room invitation posted to global chat!', 'success');
+  };
+
+  // Send message in global lobby chat
+  const handleSendLobbyMessage = () => {
+    if (!lobbyText.trim()) return;
+
+    const newMsg: LobbyMessage = {
+      id: `lobby-${Date.now()}`,
+      senderName: profile.username,
+      senderAvatar: profile.avatar_url,
+      text: lobbyText.trim(),
+      time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setLobbyMessages((prev) => [...prev, newMsg]);
+    setLobbyText('');
+
+    // Trigger mock bot chatter in group chat
+    setTimeout(() => {
+      const chatReplies = [
+        lang === 'ar' ? 'يا مرحب بالمعلمين! منورين الصالة.' : 'Welcome players! Nice to see you.',
+        lang === 'ar' ? 'أنا جاهز لأي تحدي في لعبة الدومينو!' : 'I am ready for a 4-player Domino match!',
+        lang === 'ar' ? 'مين كريت دور أونو؟ كروت حظي مستعدة اليوم.' : 'Who created the UNO room? My cards are ready.',
+        lang === 'ar' ? 'عاش يا شباب، بالتوفيق للجميع.' : 'Good luck to everyone playing!',
+      ];
+      const replyText = chatReplies[Math.floor(Math.random() * chatReplies.length)];
+
+      const botMsg: LobbyMessage = {
+        id: `lobby-bot-${Date.now()}`,
+        senderName: suggestedPlayers[Math.floor(Math.random() * suggestedPlayers.length)].name,
+        senderAvatar: suggestedPlayers[Math.floor(Math.random() * suggestedPlayers.length)].avatar,
+        text: replyText,
+        time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      setLobbyMessages((prev) => [...prev, botMsg]);
+    }, 1500);
+  };
+
+  // --- Supabase postMessage listeners ---
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      if (data.type === 'BUY_IN') {
+        const res = await processEstimationBuyIn(profile.id);
+        if (res.success && res.data) {
+          addToast(res.message, 'success');
+          onUpdate(res.data, dailyQuest);
+        } else {
+          addToast(res.message || 'فشل الدخول في المباراة 🪙', 'error');
+        }
+      }
+
+      if (data.type === 'GAME_OVER') {
+        const res = await processEstimationResult(profile.id, data.outcome);
+        if (res.success && res.data) {
+          addToast(res.message, 'success');
+          onUpdate(res.data, dailyQuest);
+
+          // AWARD XP
+          const gainedXp = data.outcome === 'win' ? 100 : 40;
+          const nextXp = { ...gameXp };
+          const previousLevel = calculateLevel(nextXp[activeGame] || 0).level;
+          nextXp[activeGame] = (nextXp[activeGame] || 0) + gainedXp;
+          saveXpData(nextXp);
+
+          const currentLevelInfo = calculateLevel(nextXp[activeGame]);
+          if (currentLevelInfo.level > previousLevel) {
+            addToast(
+              lang === 'ar'
+                ? `🎖️ مستوى جديد! ارتفع مستواك في ${activeGame} إلى ليفل ${currentLevelInfo.level}! (+${gainedXp} XP)`
+                : `🎖️ Level Up! Your level in ${activeGame} increased to Level ${currentLevelInfo.level}! (+${gainedXp} XP)`,
+              'success'
+            );
+          } else {
+            addToast(
+              lang === 'ar'
+                ? `✨ كسبت +${gainedXp} XP في لعبة ${activeGame}`
+                : `✨ Gained +${gainedXp} XP in ${activeGame}`,
+              'success'
+            );
+          }
+        } else {
+          addToast(res.message || 'حدث خطأ أثناء معالجة النتيجة 🎰', 'error');
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [profile.id, dailyQuest, onUpdate, gameXp, activeGame]);
+
+  const handleLogout = async () => {
+    const res = await logoutCurrentUser();
+    if (res.success) {
+      addToast(res.message, 'success');
+      onLogout();
+    } else {
+      addToast(res.message, 'error');
+    }
+  };
+
+  const activeChatFriend = friends.find((f) => f.id === activeChatFriendId);
+
+  const t = {
+    ar: {
+      selectGame: 'اختر اللعبة النشطة:',
+      chessGame: '⚔️ شطرنج آر بي جي (Chess)',
+      estimationGame: '🎰 كازينو الاستميشن (Estimation)',
+      unoGame: '🔴 كازينو أونو (UNO)',
+      dominoGame: '🎲 لعبة الدومينو (Domino)',
+      estimationTitle: '🎰 كازينو الاستميشن المفتوح',
+      estimationDesc: 'استمتع بلعب الكوتشينة والمراهنة الهزلية بعملات المنصة مع بطل الطائفة.',
+      unoTitle: '🔴 كازينو أونو الملون',
+      unoDesc: 'تحدي الأونو الممتع مع البوتات وتصفية الكروت لكسب الذهب.',
+      dominoTitle: '🎲 طاولة الدومينو البلدية',
+      dominoDesc: 'تحدي الدومينو الكلاسيكي مع البوت عزت وقفل اللعبة الحماسية.',
+      logout: 'تسجيل الخروج',
+      playerBadge: 'لاعب ميثك',
+      winsLabel: 'انتصارات',
+      lossesLabel: 'هزائم',
+      activeChessSession: '⚔️ مباراة الشطرنج النشطة (Active Chess Session)',
+      activeChessDesc: 'تصفح رقعة الشطرنج وتفاعل مع الخصم باستخدام لوحة التفاعل التكتيكية الجانبية.',
+      hostedGames: '🎮 مكتبة الألعاب وتحديات الصالة',
+      hostedGamesDesc: 'جميع هذه الألعاب مستضافة وتتصل ببوابة الألعاب لمزامنة العملات والإنجازات.',
+      playGame: 'تشغيل اللعبة',
+      chessTitle: '3D RPG Chess',
+      chessDesc: 'لعبة الشطرنج الاستراتيجية ثلاثية الأبعاد بأسلوب تقمص الأدوار ومكافآت يومية.',
+      cyberTitle: 'Cyber Arena Battles',
+      cyberDesc: 'قتال وتحدي استراتيجي في حلبة مستقبلية مع دعم مباشر لعملات المنصة.',
+      statusComing: 'قريباً (Coming Soon)',
+      badgeMain: 'الراية الرئيسية',
+      badgeNew: 'جديد',
+      generalLevel: 'المستوى العام للموقع',
+      gameLevels: 'مستويات الألعاب الحالية',
+      friendsTitle: '👥 ديوان الأصدقاء (Friends List)',
+      addFriendBtn: 'إضافة صديق',
+      addFriendPlaceholder: 'اكتب اسم اللاعب...',
+      chatOpenBtn: 'دردشة 💬',
+      blockBtn: 'حظر 🚫',
+      unblockBtn: 'إلغاء الحظر',
+      unfriendBtn: 'إزالة ❌',
+      blockedTitle: '🚫 قائمة المحظورين',
+      privateChatWith: 'الدردشة الخاصة مع: {name}',
+      chatPlaceholder: 'اكتب رسالتك هنا واضغط إرسال...',
+      sendBtn: 'إرسال 🚀',
+      suggestedTitle: '💡 لاعبون متصلون الآن (اضغط للإضافة)'
+    },
+    en: {
+      selectGame: 'Select Active Game:',
+      chessGame: '⚔️ 3D RPG Chess',
+      estimationGame: '🎰 Estimation Casino',
+      unoGame: '🔴 UNO Casino',
+      dominoGame: '🎲 Domino Game',
+      estimationTitle: '🎰 High-Stakes Estimation Casino',
+      estimationDesc: 'Play card bidding games against AI bots and earn gold coins.',
+      unoTitle: '🔴 Royal UNO Casino',
+      unoDesc: 'Discard all your UNO cards against funny bots and win coins.',
+      dominoTitle: '🎲 Royal Domino Cafe',
+      dominoDesc: 'Classic dominoes block game against Ezzo Bot.',
+      logout: 'Log Out',
+      playerBadge: 'Mythic Player',
+      winsLabel: 'Wins',
+      lossesLabel: 'Losses',
+      activeChessSession: '⚔️ Active Chess Session',
+      activeChessDesc: 'Browse the chessboard and interact with the opponent using the quick tactical panel.',
+      hostedGames: '🎮 Game Library & Matchmaking Lobby',
+      hostedGamesDesc: 'All games connect to this portal to sync coins, levels, and chat invitations.',
+      playGame: 'Play Game',
+      chessTitle: '3D RPG Chess',
+      chessDesc: '3D strategy chess game with roleplay elements and daily rewards.',
+      cyberTitle: 'Cyber Arena Battles',
+      cyberDesc: 'Strategic battle arena in a futuristic setting with portal coin support.',
+      statusComing: 'Coming Soon',
+      badgeMain: 'Main Flag',
+      badgeNew: 'New',
+      generalLevel: 'General Portal Level',
+      gameLevels: 'Individual Game Levels',
+      friendsTitle: '👥 Friends & Chat Hub',
+      addFriendBtn: 'Add Friend',
+      addFriendPlaceholder: 'Enter username...',
+      chatOpenBtn: 'Chat 💬',
+      blockBtn: 'Block 🚫',
+      unblockBtn: 'Unblock',
+      unfriendBtn: 'Remove ❌',
+      blockedTitle: '🚫 Blocked Users',
+      privateChatWith: 'Private Chat with: {name}',
+      chatPlaceholder: 'Type message here...',
+      sendBtn: 'Send 🚀',
+      suggestedTitle: '💡 Online Players (Click to Add)'
+    }
+  }[lang];
+
+  // Dynamic list of games configured via gamesConfig.ts
+  const gamesList = GAMES_CONFIG.map((g) => ({
+    id: g.id,
+    key: g.key,
+    title: lang === 'ar' ? g.titleAr : g.titleEn,
+    description: lang === 'ar' ? g.descAr : g.descEn,
+    status: g.status === 'ready'
+      ? (lang === 'ar' ? 'جاهز للعب (Ready)' : 'Ready to Play')
+      : (lang === 'ar' ? 'قريباً (Coming Soon)' : 'Coming Soon'),
+    isReady: g.status === 'ready',
+    image: g.image,
+    badge: lang === 'ar' ? g.badgeAr : g.badgeEn,
+    embedUrl: g.embedUrl,
+  }));
+  const gameCardsMap: Record<string, string> = {
+    chess: '/chess_card.png',
+    ludo: '/mythical_ludo_card.png',
+    estimation: '/estimation_card.jpg',
+    uno: '/uno_card.png',
+    'cyber-arena': '/cyber_card.png',
+    backgammon: '/backgammon_card.jpg',
+    fighter: '/arcade_mode_card.png',
+    domino: '/domino_card_v2.png',
+  };
+  const activeCard = gameCardsMap[activeGame || 'domino'];
+
+  return (
+    <div
+      className="min-h-screen text-slate-100 pb-12 bg-cover bg-center bg-fixed bg-no-repeat relative"
+      style={{ backgroundImage: 'url(/assets/cosmic-bg.png)' }}
+    >
+      {/* Cyber-Neon Header */}
+      <header className="border-b border-indigo-500/20 bg-[#090c15]/60 backdrop-blur-xl sticky top-0 z-30 shadow-[0_4px_30px_rgba(99,102,241,0.1)]">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <span className="text-2xl font-black bg-gradient-to-r from-amber-400 via-yellow-300 to-indigo-500 bg-clip-text text-transparent tracking-wider">
+              MYTHIC GAMES PORTAL
+            </span>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <CoinCounter coins={profile.gold_coins} />
+
+            <button
+              onClick={handleLogout}
+              className="text-xs font-bold text-rose-400 hover:text-rose-300 transition-all cursor-pointer bg-rose-950/20 hover:bg-rose-950/40 px-3 py-1.5 rounded-lg border border-rose-900/30"
+            >
+              {t.logout}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1600px] mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        {/* Left Column: Profile Card, XP Levels, & Daily Quests */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* User Profile Header & XP Level Stats */}
+          <section className="bg-gradient-to-b from-indigo-900/30 to-black/30 backdrop-blur-lg rounded-2xl p-6 border border-indigo-500/30 shadow-[inset_0_0_20px_rgba(99,102,241,0.1)] space-y-6">
+            <div className="flex items-center gap-4">
+              <img
+                src={profile.avatar_url}
+                alt="Avatar"
+                className="w-16 h-16 rounded-full bg-slate-950 p-1 border-2 border-indigo-500 shadow-xl shadow-indigo-950/50"
+              />
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  {profile.username}
+                  <span className="text-xs px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
+                    {t.playerBadge}
+                  </span>
+                </h2>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 bg-amber-950/40 border border-amber-900/30 px-2 py-0.5 rounded-md">
+                    {t.generalLevel}: Level {generalLevel}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Wins/Losses Ratio */}
+            <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800/80 text-center">
+              <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-3">
+                <span className="block text-2xl font-black text-emerald-400">{profile.wins}</span>
+                <span className="text-xs text-slate-400 font-medium">{t.winsLabel}</span>
+              </div>
+              <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-3">
+                <span className="block text-2xl font-black text-rose-400">{profile.losses}</span>
+                <span className="text-xs text-slate-400 font-medium">{t.lossesLabel}</span>
+              </div>
+            </div>
+
+            {/* PROGRESS SYSTEM DETAILS PANEL */}
+            <div className="space-y-4 pt-4 border-t border-slate-800/80">
+              <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                <span>🎖️</span> {t.gameLevels}
+              </h4>
+
+              <div className="space-y-3.5">
+                {[
+                  { name: lang === 'ar' ? '🎲 لعبة الدومينو' : 'Dominoes', info: dominoLevelInfo },
+                  { name: lang === 'ar' ? '🔴 كازينو أونو' : 'UNO Casino', info: unoLevelInfo },
+                  { name: lang === 'ar' ? '🎰 استميشن الملوك' : 'Estimation Casino', info: estimationLevelInfo },
+                  { name: lang === 'ar' ? '⚔️ شطرنج القتال 3D' : '3D Combat Chess', info: chessLevelInfo },
+                  { name: lang === 'ar' ? '🤖 معارك السايبر' : 'Cyber Arena Battles', info: cyberArenaLevelInfo },
+                  { name: lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon', info: backgammonLevelInfo },
+                ].map((g, idx) => {
+                  const pct = Math.min(100, Math.round((g.info.currentXp / g.info.nextXpRequired) * 100));
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold">
+                        <span className="text-slate-300">{g.name}</span>
+                        <span className="text-indigo-300">Level {g.info.level}</span>
+                      </div>
+                      <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-800/80 relative">
+                        <div
+                          className="bg-gradient-to-r from-indigo-600 to-indigo-400 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[8px] text-slate-500 font-mono">
+                        <span>XP: {g.info.currentXp}</span>
+                        <span>Next: {g.info.nextXpRequired} XP (+50% req)</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <DailyQuests
+            profile={profile}
+            dailyQuest={dailyQuest}
+            onUpdate={onUpdate}
+            addToast={addToast}
+            lang={lang}
+          />
+        </div>
+
+        {/* Middle Column: Matchmaking Group Chat Lobby & Games */}
+        <div className="lg:col-span-2 space-y-6">
+
+          {/* GLOBAL LOBBY GROUP CHAT & MATCHMAKING PANEL ON THE FACADE (الواجهة) */}
+          <div className="bg-gradient-to-br from-cyan-900/30 via-slate-900/40 to-blue-900/20 backdrop-blur-lg rounded-2xl p-6 border border-cyan-400/30 shadow-[0_0_20px_rgba(6,182,212,0.2)] space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800/80 pb-4 gap-4">
+              <div>
+                <h3 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">
+                  <span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]">🎮</span> {lang === 'ar' ? 'مكتبة الألعاب وغرف التحدي' : 'Game Library & Matchmaking Lobby'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {lang === 'ar' ? 'أنشئ دور لعب أو ابحث عن التحديات النشطة للانضمام واللعب فوراً!' : 'Create rooms or join active match sessions directly from the chat feed!'}
+                </p>
+              </div>
+
+              {/* Create Game Room Invite Trigger */}
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <select
+                  value={selectedGameForSession}
+                  onChange={(e) => setSelectedGameForSession(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none"
+                >
+                  <option value="domino-game">🎲 {lang === 'ar' ? 'لعبة الدومينو' : 'Dominoes'}</option>
+                  <option value="uno-game">🔴 {lang === 'ar' ? 'كازينو أونو' : 'UNO'}</option>
+                  <option value="estimation-game">🎰 {lang === 'ar' ? 'كازينو الاستميشن' : 'Estimation'}</option>
+                  <option value="cyber-arena">🤖 {lang === 'ar' ? 'معارك السايبر' : 'Cyber Arena'}</option>
+                  <option value="backgammon-game">🎲 {lang === 'ar' ? 'لعبة الطاولة' : 'Backgammon'}</option>
+                </select>
+
+                <button
+                  onClick={() => handleCreateSession(selectedGameForSession)}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer shadow-lg shadow-indigo-900/20 whitespace-nowrap"
+                >
+                  {lang === 'ar' ? '➕ إنشاء دور لعب' : '➕ Create Room'}
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Group Chat Lobby Stream */}
+            <div className="h-[380px] bg-slate-950 border border-slate-850 rounded-2xl p-4 overflow-y-auto space-y-4 scrollbar-thin">
+              {lobbyMessages.map((msg) => (
+                <div key={msg.id} className="flex gap-3 text-xs items-start">
+                  <img src={msg.senderAvatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800" />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-indigo-300">{msg.senderName}</span>
+                      <span className="text-[9px] text-slate-650 font-mono">{msg.time}</span>
+                    </div>
+
+                    <p className="text-slate-300 text-xs">{msg.text}</p>
+
+                    {/* Interactive Session Invite Card inside Chat! */}
+                    {msg.session && (
+                      <div className="mt-2.5 p-3.5 bg-indigo-950/20 border border-indigo-500/20 rounded-xl flex items-center justify-between gap-4 max-w-sm">
+                        <div>
+                          <p className="font-bold text-white text-[11px]">{msg.session.gameTitle}</p>
+                          <p className="text-[9px] text-indigo-400 mt-0.5">{lang === 'ar' ? `المستضيف: ${msg.session.hostName}` : `Hosted by: ${msg.session.hostName}`}</p>
+                        </div>
+                        <button
+                          onClick={() => handlePlayGame(msg.session!.gameId)}
+                          className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 text-[10px] font-black rounded-lg hover:from-amber-500 hover:to-amber-400 active:scale-95 transition-all cursor-pointer border border-amber-400"
+                        >
+                          {lang === 'ar' ? '🕹️ انضم الآن' : '🕹️ Join now'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Global Chat message input */}
+            <div className="flex gap-2.5">
+              <input
+                type="text"
+                value={lobbyText}
+                onChange={(e) => setLobbyText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendLobbyMessage()}
+                placeholder={lang === 'ar' ? 'اكتب رسالة للدردشة والمشاكسة مع الموجودين باللوبي...' : 'Broadcast message to portal lobby chat...'}
+                className="flex-1 bg-black/50 border border-purple-500/30 rounded-xl px-4 py-2.5 text-xs text-purple-100 focus:outline-none focus:border-purple-400 focus:shadow-[0_0_10px_rgba(168,85,247,0.3)] placeholder-purple-900/50"
+              />
+              <button
+                onClick={handleSendLobbyMessage}
+                className="px-5 py-2.5 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.2)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+              >
+                {t.sendBtn}
+              </button>
+            </div>
+          </div>
+
+          {/* Hosted Games Library Cards Grid */}
+          <div className="bg-gradient-to-tr from-blue-900/30 via-slate-900/40 to-purple-900/20 backdrop-blur-lg rounded-2xl p-6 border border-purple-400/30 shadow-[0_0_20px_rgba(168,85,247,0.2)] space-y-6 relative overflow-hidden">
+            {/* Subtle glow orb in background */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+            <div>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <span>{t.hostedGames}</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">{t.hostedGamesDesc}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {gamesList.map((game) => (
+                <div
+                  key={game.id}
+                  className="bg-black/40 backdrop-blur-md border border-cyan-500/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.1)] flex flex-col group hover:border-cyan-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:-translate-y-1 transition-all duration-300 relative z-10"
+                >
+                  <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
+                    <img
+                      src={game.image}
+                      alt={game.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500 opacity-80"
+                    />
+                    <span className="absolute top-3 left-3 text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white px-2 py-0.5 rounded">
+                      {game.badge}
+                    </span>
+                  </div>
+
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-white text-base">{game.title}</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">{game.description}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                      <span className={`text-xs font-semibold ${game.isReady ? 'text-emerald-400' : 'text-amber-500'}`}>
+                        {game.status}
+                      </span>
+                      <button
+                        disabled={!game.isReady}
+                        onClick={() => handlePlayGame(game.id)}
+                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${game.isReady
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white border-transparent cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                            : 'bg-black/50 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60'
+                          }`}
+                      >
+                        {game.isReady ? t.playGame : (lang === 'ar' ? 'قريباً' : 'Coming Soon')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Right Column: Friends Messenger Vertical Panel */}
+        <div className="lg:col-span-1 h-full">
+          <div className="bg-gradient-to-br from-fuchsia-900/30 via-slate-900/40 to-indigo-900/20 backdrop-blur-xl border border-fuchsia-400/30 rounded-2xl p-0 shadow-[0_0_25px_rgba(168,85,247,0.2)] flex flex-col h-[calc(100vh-140px)] sticky top-24 overflow-hidden relative">
+            {/* Ambient inner glow for the messenger */}
+            <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-purple-600/10 to-transparent pointer-events-none"></div>
+
+            {/* Chat Window Panel (Top Half, Flexible) */}
+            <div className="flex-1 flex flex-col justify-between bg-black/20 p-4 overflow-hidden relative z-10">
+              {activeChatFriend ? (
+                <>
+                  {/* Chat Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <img src={activeChatFriend.avatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-950 border border-slate-800" />
+                      <div>
+                        <span className="text-xs font-black text-amber-400 block">
+                          {activeChatFriend.name}
+                        </span>
+                        <p className="text-[9px] text-slate-500">
+                          {activeChatFriend.blocked
+                            ? (lang === 'ar' ? 'الصديق محظور - قم بإلغاء الحظر للمراسلة' : 'Friend Blocked - Unblock to chat')
+                            : (lang === 'ar' ? 'دردشة نشطة' : 'Active Chat')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Message logs */}
+                  <div className="flex-1 overflow-y-auto py-3 space-y-3 scrollbar-thin pr-1">
+                    {activeChatFriend.chatHistory.map((h, i) => (
+                      <div
+                        key={i}
+                        className={`flex flex-col ${h.sender === 'you' ? 'items-end' : 'items-start'} space-y-1`}
+                      >
+                        <div
+                          className={`px-3 py-2 rounded-2xl border text-[10.5px] max-w-[85%] leading-relaxed ${h.sender === 'you'
+                              ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-200 rounded-tr-none'
+                              : 'bg-slate-950/60 border-slate-800 text-slate-350 rounded-tl-none'
+                            }`}
+                        >
+                          {h.text}
+                        </div>
+                        <span className="text-[7px] text-slate-600 font-mono px-1.5">{h.time}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Chat input box */}
+                  <div className="flex gap-2 pt-3 border-t border-slate-800/80 shrink-0">
+                    <input
+                      type="text"
+                      value={typedMessage}
+                      onChange={(e) => setTypedMessage(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                      placeholder={activeChatFriend.blocked ? (lang === 'ar' ? 'قم بإلغاء حظر الصديق أولاً لإرسال الرسائل!' : 'Unblock first to chat!') : t.chatPlaceholder}
+                      disabled={activeChatFriend.blocked}
+                      className="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed min-w-0"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={activeChatFriend.blocked}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      {t.sendBtn}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6">
+                  <span className="text-5xl animate-bounce mb-3 drop-shadow-[0_0_15px_rgba(168,85,247,0.8)]">👻</span>
+                  <p className="text-xs text-slate-500 leading-relaxed italic max-w-xs">
+                    {lang === 'ar'
+                      ? 'اختر صديقاً من القائمة لبدء المحادثة، أو قم بإضافة صديق جديد للمراسلة الفورية!'
+                      : 'Select a friend from the list to start chatting, or add new friends to message.'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Friends List Panel (Bottom Half, Dynamic Height) */}
+            <div className="bg-black/40 p-4 border-t border-purple-500/20 flex flex-col gap-4 shrink-0 max-h-[50%] shadow-[inset_0_20px_20px_-20px_rgba(168,85,247,0.1)] relative z-10">
+
+              <div className="space-y-3 shrink-0">
+                <h3 className="text-sm font-black text-purple-200 flex items-center gap-2 drop-shadow-[0_0_5px_rgba(168,85,247,0.5)]">
+                  <span className="text-purple-400">👻</span> {lang === 'ar' ? 'ماسنجر الأصدقاء' : 'Friends Messenger'}
+                </h3>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={searchFriendName}
+                    onChange={(e) => setSearchFriendName(e.target.value)}
+                    placeholder={t.addFriendPlaceholder}
+                    className="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 min-w-0"
+                  />
+                  <button
+                    onClick={() => handleAddFriend(searchFriendName)}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-xl active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {t.addFriendBtn}
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggested active online users */}
+              <div className="space-y-2 shrink-0">
+                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">{t.suggestedTitle}</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {suggestedPlayers.map((player, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleAddFriend(player.name, player.avatar)}
+                      className="flex items-center gap-1.5 p-1 bg-slate-950/40 hover:bg-slate-950 border border-slate-850 hover:border-slate-800 rounded-xl transition-all text-left text-[9px] font-bold cursor-pointer min-w-0"
+                    >
+                      <img src={player.avatar} alt={player.name} className="w-4 h-4 rounded-full bg-slate-900 shrink-0" />
+                      <span className="truncate text-slate-350">{player.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Scrollable Friends list (Messenger Style) */}
+              <div className="flex-1 overflow-y-auto space-y-2 mt-2 pr-1 scrollbar-thin">
+                {friends.map((friend) => {
+                  const isActive = activeChatFriendId === friend.id;
+                  return (
+                    <div
+                      key={friend.id}
+                      onClick={() => setActiveChatFriendId(friend.id)}
+                      className={`flex items-center justify-between p-2 rounded-xl text-xs gap-3 transition-all cursor-pointer border ${isActive
+                          ? 'bg-indigo-950/30 border-indigo-500/40'
+                          : 'bg-slate-950/40 border-transparent hover:bg-slate-950/60'
+                        }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="relative">
+                          <img src={friend.avatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800" />
+                          {!friend.blocked && <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-slate-950 animate-pulse"></div>}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`font-bold truncate ${friend.blocked ? 'text-slate-500 line-through font-normal' : 'text-slate-200'}`}>
+                            {friend.name}
+                          </p>
+                          <p className="text-[9px] text-slate-500 truncate">
+                            {friend.blocked ? (lang === 'ar' ? 'محظور 🚫' : 'Blocked 🚫') : (lang === 'ar' ? 'نشط الآن' : 'Active Now')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Quick block/delete controls */}
+                      <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {!friend.blocked ? (
+                          <button
+                            onClick={() => handleBlockFriend(friend.id)}
+                            className="p-1 bg-rose-950/20 border border-rose-900/30 hover:bg-rose-900/40 text-rose-400 rounded-lg transition-all cursor-pointer text-[10px]"
+                            title={t.blockBtn}
+                          >
+                            🚫
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleUnblockFriend(friend.id)}
+                            className="p-1 bg-emerald-950/20 border border-emerald-900/30 hover:bg-emerald-900/40 text-emerald-400 rounded-lg transition-all cursor-pointer text-[10px]"
+                            title={t.unblockBtn}
+                          >
+                            🔓
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleRemoveFriend(friend.id)}
+                          className="p-1 bg-slate-900 hover:bg-slate-850 text-slate-400 rounded-lg transition-all cursor-pointer text-[10px]"
+                          title={t.unfriendBtn}
+                        >
+                          ❌
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {friends.length === 0 && (
+                  <div className="text-center text-[10.5px] text-slate-500 italic py-6">
+                    {lang === 'ar' ? 'لا يوجد أصدقاء بعد. أضف بعض اللاعبين للدردشة!' : 'No friends yet. Add some players!'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </main>
+
+      {/* --- CHOOSE GAME SESSION MODAL --- */}
+      {showSessionSelectorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0f19] border border-slate-800 rounded-3xl p-6 w-full max-w-md relative shadow-2xl space-y-4">
+            <h3 className="text-base font-black text-white">
+              {lang === 'ar' ? 'جلسات اللعب المتاحة بانتظار لاعب' : 'Active Game Sessions Waiting'}
+            </h3>
+            <p className="text-xs text-slate-400">
+              {lang === 'ar' ? 'تم العثور على أكثر من جلسة واحدة لهذه اللعبة. اختر مع من تريد اللعب:' : 'Multiple active sessions found. Select a host to play with:'}
+            </p>
+
+            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              {selectorSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-2xl text-xs gap-3 hover:border-slate-700 transition-all"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img src={session.hostAvatar} alt="Avatar" className="w-6 h-6 rounded-full bg-slate-900" />
+                    <div>
+                      <p className="font-bold text-white leading-tight">{session.hostName}</p>
+                      <p className="text-[9px] text-slate-555 font-mono mt-0.5">{session.createdAt}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowSessionSelectorModal(false);
+                      addToast(lang === 'ar' ? `تم الانضمام لجلسة [${session.hostName}] بنجاح! 🎮` : `Joined session hosted by [${session.hostName}]! 🎮`, 'success');
+                      setActiveSessions((prev) => prev.filter((s) => s.id !== session.id));
+                      launchGameMode(selectorGameId);
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 text-[10px] font-black rounded-lg border border-amber-400 active:scale-95 transition-all cursor-pointer"
+                  >
+                    {lang === 'ar' ? '🕹️ انضم والعب' : '🕹️ Join & Play'}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setShowSessionSelectorModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-400 text-xs font-bold cursor-pointer"
+              >
+                {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Modal Popup Overlay */}
+      {showGameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md">
+          <div className="w-full h-full flex flex-col overflow-hidden relative shadow-2xl">
+
+            {/* Dynamic Blurred Game Card Background */}
+            <div
+              className="absolute inset-0 bg-cover -z-20 pointer-events-none"
+              style={{
+                backgroundImage: `url('${activeCard}')`,
+                backgroundPosition: 'center top',
+                filter: 'brightness(0.35) saturate(1.1)'
+              }}
+            />
+            <div className="absolute inset-0 bg-black/40 -z-10 pointer-events-none" />
+
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800/60 bg-slate-950/40 backdrop-blur-md">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <span>🎰</span>
+                {activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
+              </h3>
+              <button
+                onClick={() => setShowGameModal(false)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer text-[10px] font-bold bg-slate-800/40 hover:bg-rose-950/50 px-3 py-1 rounded-lg border border-slate-700/50 hover:border-rose-700/50"
+              >
+                ❌ {lang === 'ar' ? 'إغلاق اللعبة' : 'Close Game'}
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="flex-1 flex flex-col md:flex-row p-2 gap-4 overflow-hidden bg-transparent">
+              <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full">
+                <iframe
+                  src={
+                    (() => {
+                      const matched = GAMES_CONFIG.find(g => g.key === activeGame);
+                      const base = matched?.embedUrl || `/games/${activeGame}`;
+                      const sep = base.includes('?') ? '&' : '?';
+                      return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}`;
+                    })()
+                  }
+                  className="w-full h-full border-none"
+                  title="Game Iframe Inside Modal"
+                />
+              </div>
+
+              {/* Sidebar Panel - Collapsed/hidden on small mobile to give full screen to game */}
+              <div className="hidden md:block md:w-[350px] shrink-0 h-full overflow-y-auto z-20">
+                <InteractionPanel profile={profile} onUpdate={onUpdate} addToast={addToast} lang={lang} activeGame={activeGame} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
