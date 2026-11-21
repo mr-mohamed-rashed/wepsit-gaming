@@ -1622,7 +1622,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[130%] h-[185%] -translate-y-[32%] flex items-end justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_rgba(250,204,21,0.95)]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -1730,7 +1730,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[130%] h-[185%] -translate-y-[32%] flex items-end justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#06b6d4]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -1828,7 +1828,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[130%] h-[185%] -translate-y-[32%] flex items-end justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#f59e0b]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -1948,7 +1948,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
     return (
       <div
-        className={`relative w-[130%] h-[185%] -translate-y-[32%] flex items-end justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+        className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
           isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_14px_${cfg.neon}]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
         }`}
       >
@@ -2076,11 +2076,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
             if (slotColor === 'yellow') padGlow = 'border-amber-500/70 bg-amber-950/60 shadow-[0_0_10px_rgba(245,158,11,0.4)]';
 
             cells.push(
-              <div key={`${r}-${c}`} className="relative flex items-center justify-center p-0.5">
+              <div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className="relative flex items-center justify-center p-0.5">
                 {isActive && isAtHome && (
                   <div
                     onClick={() => { if (isValidMove && token) handleTokenClick(token); }}
-                    className={`w-[110%] h-[110%] rounded-full border-2 ${padGlow} flex items-center justify-center transition-all duration-300 ${isValidMove ? 'cursor-pointer hover:scale-110 z-20' : ''
+                    className={`w-[95%] h-[95%] rounded-full border-2 ${padGlow} flex items-center justify-center transition-all duration-300 ${isValidMove ? 'cursor-pointer hover:scale-110 z-20' : ''
                       }`}
                   >
                     <SpaceToken color={slotColor} isSelectable={isValidMove} />
@@ -2092,7 +2092,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </div>
             );
           } else {
-            cells.push(<div key={`${r}-${c}`} className="" />);
+            cells.push(<div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className="" />);
           }
           continue;
         }
@@ -2163,7 +2163,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         });
 
         cells.push(
-          <div key={`${r}-${c}`} className={`w-full h-full ${cellStyle} relative flex items-center justify-center p-0.5`}>
+          <div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className={`w-full h-full ${cellStyle} relative flex items-center justify-center p-0.5`}>
             {cellIndicator}
 
             {/* Footprint trail */}
@@ -2181,7 +2181,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 {tokensOnCell.map((token) => {
                   const isTurn = turn === token.color;
                   const isValidMove = isTurn && gameState === 'waiting_move' && getValidMoves(turn, diceValues[turn]).some(t => t.id === token.id);
-                  const sizeClass = tokensOnCell.length > 1 ? 'w-[62%] h-[62%] relative flex items-end justify-center' : 'w-[105%] h-[105%] relative flex items-end justify-center';
+                  const sizeClass = tokensOnCell.length > 1 ? 'w-[52%] h-[52%] relative flex items-center justify-center' : 'w-full h-full relative flex items-center justify-center';
 
                   return (
                     <div
