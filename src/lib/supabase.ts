@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Types corresponding to our PostgreSQL schema
 export interface Profile {
@@ -17,15 +17,52 @@ export interface DailyQuest {
   matches_played_today: number;
 }
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+function sanitizeUrl(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  let url = rawUrl.trim().replace(/^["']|["']$/g, '');
+  if (!url || url === 'YOUR_SUPABASE_URL') return null;
 
-// Determine if we have real Supabase config
-export const isRealSupabaseConfigured = 
-  SUPABASE_URL && 
-  SUPABASE_ANON_KEY && 
-  SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+  // If user pasted a JWT anon key into the URL field by mistake
+  if (url.startsWith('eyJ')) return null;
 
-export const supabaseClient = isRealSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
+  // If missing https:// prefix
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (url.includes('supabase.co')) {
+      url = `https://${url}`;
+    } else {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.origin;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function sanitizeKey(rawKey: string | undefined): string | null {
+  if (!rawKey) return null;
+  const key = rawKey.trim().replace(/^["']|["']$/g, '');
+  if (!key || key === 'YOUR_SUPABASE_ANON_KEY') return null;
+  return key;
+}
+
+const cleanedUrl = sanitizeUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const cleanedKey = sanitizeKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+
+export const isRealSupabaseConfigured = Boolean(cleanedUrl && cleanedKey);
+
+export const supabaseClient: SupabaseClient | null = (() => {
+  if (!cleanedUrl || !cleanedKey) return null;
+  try {
+    return createClient(cleanedUrl, cleanedKey);
+  } catch (err) {
+    console.warn('[Supabase] Initialization error:', err);
+    return null;
+  }
+})();
