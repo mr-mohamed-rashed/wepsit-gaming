@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Profile, DailyQuest } from '@/lib/supabase';
+import { Profile, DailyQuest, supabaseClient } from '@/lib/supabase';
 import { getCurrentUserSession, AuthResponse } from './actions/authActions';
 import { fetchDailyCheck } from './actions/gameActions'; // Load standard daily check helper
 import AuthForm from '@/components/AuthForm';
@@ -59,6 +59,21 @@ export default function Home() {
 
   useEffect(() => {
     loadSession();
+
+    if (supabaseClient) {
+      const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
+          await loadSession();
+        } else if (event === 'SIGNED_OUT') {
+          setProfile(null);
+          setDailyQuest(null);
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, []);
 
   const handleAuthSuccess = async (response: AuthResponse) => {

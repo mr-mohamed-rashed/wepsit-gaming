@@ -89,9 +89,33 @@ export async function getProfile(userId: string): Promise<Profile> {
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
-    if (error) throw new Error(error.message);
-    return data as Profile;
+      .maybeSingle();
+
+    if (data) return data as Profile;
+
+    // Fallback: If profile doesn't exist yet (e.g. initial Google OAuth sign in)
+    const { data: authData } = await supabaseClient.auth.getUser();
+    const user = authData?.user;
+    const username = user?.user_metadata?.full_name || 
+                     user?.user_metadata?.name || 
+                     user?.email?.split('@')[0] || 
+                     `Player_${userId.substring(0, 8)}`;
+    const avatar_url = user?.user_metadata?.avatar_url || 
+                       user?.user_metadata?.picture || 
+                       `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`;
+
+    const newProfile: Profile = {
+      id: userId,
+      username,
+      avatar_url,
+      gold_coins: 100,
+      wins: 0,
+      losses: 0,
+      unlocked_emotes: [],
+    };
+
+    await supabaseClient.from('profiles').upsert(newProfile);
+    return newProfile;
   } else {
     const { profile } = await getMockDb(userId);
     return profile;
@@ -104,9 +128,18 @@ export async function getDailyQuest(userId: string): Promise<DailyQuest> {
       .from('daily_quests')
       .select('*')
       .eq('user_id', userId)
-      .single();
-    if (error) throw new Error(error.message);
-    return data as DailyQuest;
+      .maybeSingle();
+
+    if (data) return data as DailyQuest;
+
+    const defaultQuest: DailyQuest = {
+      user_id: userId,
+      last_login_claim: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      matches_played_today: 0,
+    };
+
+    await supabaseClient.from('daily_quests').upsert(defaultQuest);
+    return defaultQuest;
   } else {
     const { dailyQuest } = await getMockDb(userId);
     return dailyQuest;
