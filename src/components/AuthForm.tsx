@@ -287,8 +287,17 @@ export default function AuthForm({ onAuthSuccess, lang = 'ar' }: AuthFormProps) 
         </button>
       </div>
 
-      <div className="border-t border-slate-800/80 pt-4 text-center">
-        <p className="text-[10px] text-slate-500 font-mono">
+      <div className="border-t border-slate-800/80 pt-3 text-center space-y-1">
+        <div className="flex items-center justify-center gap-3 text-xs text-slate-500">
+          <a href="/terms" className="hover:text-indigo-400 transition-colors underline">
+            شروط الاستخدام
+          </a>
+          <span>•</span>
+          <a href="/privacy" className="hover:text-indigo-400 transition-colors underline">
+            سياسة الخصوصية
+          </a>
+        </div>
+        <p className="text-[10px] text-slate-600 font-mono">
           {t.offlineActive}
         </p>
       </div>
