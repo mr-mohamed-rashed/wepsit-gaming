@@ -7,6 +7,7 @@ import { processEstimationBuyIn, processEstimationResult } from '@/app/actions/g
 import CoinCounter from './CoinCounter';
 import DailyQuests from './DailyQuests';
 import InteractionPanel from './InteractionPanel';
+import StakeSelectorModal, { GameTableOption, GHOST_BOTS } from './StakeSelectorModal';
 import { GAMES_CONFIG } from '@/config/gamesConfig';
 
 interface DashboardProps {
@@ -46,8 +47,17 @@ interface LobbyMessage {
 }
 
 export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, addToast, lang = 'ar' }: DashboardProps) {
-  const [activeGame, setActiveGame] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo'>('domino');
+  const [activeGame, setActiveGame] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('domino');
   const [showGameModal, setShowGameModal] = useState(false);
+  const [showStakeModal, setShowStakeModal] = useState(false);
+  const [pendingGameTitle, setPendingGameTitle] = useState('');
+  const [pendingGameMode, setPendingGameMode] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('ludo');
+  const [selectedStakeConfig, setSelectedStakeConfig] = useState<{
+    table: GameTableOption;
+    mode: '8-ball' | 'snooker';
+    playerCount: number;
+    opponent: typeof GHOST_BOTS[0];
+  } | null>(null);
 
   // --- XP & LEVEL SYSTEM STATE ---
   const [gameXp, setGameXp] = useState<Record<string, number>>({
@@ -379,8 +389,9 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   };
 
   const launchGameMode = (gameId: string) => {
-    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' = 'chess';
-    if (gameId === 'domino-game') resolvedMode = 'domino';
+    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'chess';
+    if (gameId === 'billiards-game') resolvedMode = 'billiards';
+    else if (gameId === 'domino-game') resolvedMode = 'domino';
     else if (gameId === 'uno-game') resolvedMode = 'uno';
     else if (gameId === 'estimation-game') resolvedMode = 'estimation';
     else if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
@@ -388,7 +399,21 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     else if (gameId === 'fighter-game') resolvedMode = 'fighter';
     else if (gameId === 'ludo-game') resolvedMode = 'ludo';
 
-    setActiveGame(resolvedMode);
+    const matched = GAMES_CONFIG.find((g) => g.id === gameId);
+    setPendingGameTitle(lang === 'ar' ? (matched?.titleAr || 'طاولة الرهان') : (matched?.titleEn || 'Stake Table'));
+    setPendingGameMode(resolvedMode);
+    setShowStakeModal(true);
+  };
+
+  const handleStartGameFromStakeModal = (config: {
+    table: GameTableOption;
+    mode: '8-ball' | 'snooker';
+    playerCount: number;
+    opponent: typeof GHOST_BOTS[0];
+  }) => {
+    setSelectedStakeConfig(config);
+    setShowStakeModal(false);
+    setActiveGame(pendingGameMode);
     setShowGameModal(true);
   };
 
@@ -1164,7 +1189,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800/60 bg-slate-950/40 backdrop-blur-md">
               <h3 className="text-sm font-black text-white flex items-center gap-2">
                 <span>🎰</span>
-                {activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
+                {activeGame === 'billiards' ? (lang === 'ar' ? '🎱 بلياردو 8 Ball Pool & سنوكر' : '8-Ball Pool & Snooker') : activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
               </h3>
               <button
                 onClick={() => setShowGameModal(false)}
@@ -1183,7 +1208,10 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                       const matched = GAMES_CONFIG.find(g => g.key === activeGame);
                       const base = matched?.embedUrl || `/games/${activeGame}`;
                       const sep = base.includes('?') ? '&' : '?';
-                      return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}`;
+                      const stakeParams = selectedStakeConfig
+                        ? `&stake=${selectedStakeConfig.table.entryFee}&prize=${selectedStakeConfig.table.prizeAmount}&table=${selectedStakeConfig.table.id}&mode=${selectedStakeConfig.mode}&opponentName=${encodeURIComponent(selectedStakeConfig.opponent.name)}&opponentAvatar=${encodeURIComponent(selectedStakeConfig.opponent.avatar)}&opponentFlag=${encodeURIComponent(selectedStakeConfig.opponent.flag)}`
+                        : '';
+                      return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}${stakeParams}`;
                     })()
                   }
                   className="w-full h-full border-none"
@@ -1198,6 +1226,18 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             </div>
           </div>
         </div>
+      )}
+
+      {/* Stake & Table Selector Modal */}
+      {showStakeModal && (
+        <StakeSelectorModal
+          gameTitle={pendingGameTitle}
+          gameKey={pendingGameMode}
+          profile={profile}
+          onClose={() => setShowStakeModal(false)}
+          onStartGame={handleStartGameFromStakeModal}
+          addToast={addToast}
+        />
       )}
     </div>
   );

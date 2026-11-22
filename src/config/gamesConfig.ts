@@ -1,6 +1,6 @@
 export interface GameConfig {
   id: string;
-  key: 'ludo' | 'chess' | 'backgammon' | 'domino' | 'uno' | 'estimation' | 'fighter' | 'cyber-arena';
+  key: 'ludo' | 'chess' | 'backgammon' | 'domino' | 'uno' | 'estimation' | 'fighter' | 'cyber-arena' | 'billiards';
   titleAr: string;
   titleEn: string;
   descAr: string;
@@ -14,6 +14,19 @@ export interface GameConfig {
 }
 
 export const GAMES_CONFIG: GameConfig[] = [
+  {
+    id: 'billiards-game',
+    key: 'billiards',
+    titleAr: '🎱 بلياردو 8 Ball Pool & سنوكر',
+    titleEn: '🎱 8-Ball Pool & Royal Snooker',
+    descAr: 'تحدي بلياردو 8 Ball Pool الكلاسيكي الاحترافي مع خيار ترابيزة السنوكر الإنجليزية، تحديد الرهانات، ومنافسات أونلاين.',
+    descEn: 'Classic 8-Ball American Pool and British Snooker tables with physics, cue spin, stakes, and online tournament mode.',
+    status: 'ready',
+    badgeAr: 'جديد 🔥',
+    badgeEn: 'New 🔥',
+    image: '/iron_strike_card.png',
+    embedUrl: '/games/billiards',
+  },
   {
     id: 'ludo-game',
     key: 'ludo',
