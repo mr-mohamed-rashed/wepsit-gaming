@@ -25,7 +25,7 @@ export const GAMES_CONFIG: GameConfig[] = [
     badgeAr: 'جديد 🔥',
     badgeEn: 'New 🔥',
     image: '/iron_strike_card.png',
-    embedUrl: '/games/billiards',
+    embedUrl: process.env.NEXT_PUBLIC_GAME_BILLIARDS_URL || '/games/billiards',
   },
   {
     id: 'ludo-game',
@@ -38,7 +38,7 @@ export const GAMES_CONFIG: GameConfig[] = [
     badgeAr: 'جاهزة للعب 🚀',
     badgeEn: 'Ready to Play 🚀',
     image: '/mythical_ludo_card.png',
-    embedUrl: '/games/ludo', // Embedded local route or standalone server (e.g. http://localhost:5001)
+    embedUrl: process.env.NEXT_PUBLIC_GAME_LUDO_URL || '/games/ludo',
   },
   {
     id: 'rpg-chess',

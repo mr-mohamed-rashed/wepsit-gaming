@@ -89,14 +89,14 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'CLOSE_GAME') {
         setShowGameModal(false);
-      } else if (event.data.type === 'LUDO_GAME_OVER') {
+      } else if (event.data.type === 'LUDO_GAME_OVER' || event.data.type === 'GAME_OVER') {
         if (event.data.isHuman && event.data.coins > 0) {
           const updatedCoins = profile.gold_coins + event.data.coins;
           onUpdate({ ...profile, gold_coins: updatedCoins, wins: profile.wins + 1 }, dailyQuest);
           addToast(
             lang === 'ar'
-              ? `🎉 مبروك! فزت في بطولة اللودو وحصلت على ${event.data.coins} عملة ذهبية!`
-              : `🎉 Congratulations! You won in Ludo and earned ${event.data.coins} gold coins!`,
+              ? `🎉 مبروك! حققت الفوز وحصلت على ${event.data.coins} عملة ذهبية!`
+              : `🎉 Congratulations! You won and earned ${event.data.coins} gold coins!`,
             'success'
           );
         }
