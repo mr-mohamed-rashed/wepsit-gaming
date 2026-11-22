@@ -25,7 +25,7 @@ export const GAMES_CONFIG: GameConfig[] = [
     badgeAr: 'جديد 🔥 Cue Master',
     badgeEn: 'New 🔥 Cue Master',
     image: '/cue_master_card.jpg',
-    embedUrl: process.env.NEXT_PUBLIC_GAME_BILLIARDS_URL || '/games/billiards',
+    embedUrl: process.env.NEXT_PUBLIC_GAME_BILLIARDS_URL || 'https://game-billiards-nine.vercel.app',
   },
   {
     id: 'ludo-game',
