@@ -1189,7 +1189,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800/60 bg-slate-950/40 backdrop-blur-md">
               <h3 className="text-sm font-black text-white flex items-center gap-2">
                 <span>🎰</span>
-                {activeGame === 'billiards' ? (lang === 'ar' ? '🎱 بلياردو 8 Ball Pool & سنوكر' : '8-Ball Pool & Snooker') : activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
+                {activeGame === 'billiards' ? (lang === 'ar' ? '🎱 كيو ماستر (Cue Master) بلياردو & سنوكر' : '🎱 Cue Master Pool & Snooker') : activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
               </h3>
               <button
                 onClick={() => setShowGameModal(false)}
