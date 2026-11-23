@@ -1,4 +1,4 @@
-import { isRealSupabaseConfigured, supabaseClient, Profile, DailyQuest } from './supabase';
+import { isRealSupabaseConfigured, supabaseClient, supabaseAdmin, Profile, DailyQuest } from './supabase';
 
 const DEFAULT_PROFILE = (userId: string, username = 'GamerPro_99'): Profile => ({
   id: userId,
@@ -84,8 +84,9 @@ export async function saveMockDb(profile: Profile, dailyQuest: DailyQuest) {
 
 // Unified database methods
 export async function getProfile(userId: string): Promise<Profile> {
-  if (isRealSupabaseConfigured && supabaseClient) {
-    const { data, error } = await supabaseClient
+  const client = supabaseAdmin || supabaseClient;
+  if (isRealSupabaseConfigured && client) {
+    const { data, error } = await client
       .from('profiles')
       .select('*')
       .eq('id', userId)
@@ -94,7 +95,7 @@ export async function getProfile(userId: string): Promise<Profile> {
     if (data) return data as Profile;
 
     // Fallback: If profile doesn't exist yet (e.g. initial Google OAuth sign in)
-    const { data: authData } = await supabaseClient.auth.getUser();
+    const { data: authData } = await client.auth.getUser();
     const user = authData?.user;
     const username = user?.user_metadata?.full_name || 
                      user?.user_metadata?.name || 
@@ -114,7 +115,7 @@ export async function getProfile(userId: string): Promise<Profile> {
       unlocked_emotes: [],
     };
 
-    await supabaseClient.from('profiles').upsert(newProfile);
+    await client.from('profiles').upsert(newProfile);
     return newProfile;
   } else {
     const { profile } = await getMockDb(userId);
@@ -123,8 +124,9 @@ export async function getProfile(userId: string): Promise<Profile> {
 }
 
 export async function getDailyQuest(userId: string): Promise<DailyQuest> {
-  if (isRealSupabaseConfigured && supabaseClient) {
-    const { data, error } = await supabaseClient
+  const client = supabaseAdmin || supabaseClient;
+  if (isRealSupabaseConfigured && client) {
+    const { data, error } = await client
       .from('daily_quests')
       .select('*')
       .eq('user_id', userId)
@@ -138,7 +140,7 @@ export async function getDailyQuest(userId: string): Promise<DailyQuest> {
       matches_played_today: 0,
     };
 
-    await supabaseClient.from('daily_quests').upsert(defaultQuest);
+    await client.from('daily_quests').upsert(defaultQuest);
     return defaultQuest;
   } else {
     const { dailyQuest } = await getMockDb(userId);
@@ -147,8 +149,9 @@ export async function getDailyQuest(userId: string): Promise<DailyQuest> {
 }
 
 export async function updateProfile(profile: Profile): Promise<void> {
-  if (isRealSupabaseConfigured && supabaseClient) {
-    const { error } = await supabaseClient
+  const client = supabaseAdmin || supabaseClient;
+  if (isRealSupabaseConfigured && client) {
+    const { error } = await client
       .from('profiles')
       .update({
         gold_coins: profile.gold_coins,
@@ -157,7 +160,10 @@ export async function updateProfile(profile: Profile): Promise<void> {
         unlocked_emotes: profile.unlocked_emotes,
       })
       .eq('id', profile.id);
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('[Supabase updateProfile Error]:', error);
+      throw new Error(error.message);
+    }
   } else {
     const db = await getMockDb(profile.id);
     await saveMockDb(profile, db.dailyQuest);
@@ -165,15 +171,19 @@ export async function updateProfile(profile: Profile): Promise<void> {
 }
 
 export async function updateDailyQuest(dailyQuest: DailyQuest): Promise<void> {
-  if (isRealSupabaseConfigured && supabaseClient) {
-    const { error } = await supabaseClient
+  const client = supabaseAdmin || supabaseClient;
+  if (isRealSupabaseConfigured && client) {
+    const { error } = await client
       .from('daily_quests')
       .upsert({
         user_id: dailyQuest.user_id,
         last_login_claim: dailyQuest.last_login_claim,
         matches_played_today: dailyQuest.matches_played_today,
       });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('[Supabase updateDailyQuest Error]:', error);
+      throw new Error(error.message);
+    }
   } else {
     const db = await getMockDb(dailyQuest.user_id);
     await saveMockDb(db.profile, dailyQuest);

@@ -54,6 +54,7 @@ function sanitizeKey(rawKey: string | undefined): string | null {
 
 const cleanedUrl = sanitizeUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const cleanedKey = sanitizeKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const cleanedServiceRoleKey = sanitizeKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 export const isRealSupabaseConfigured = Boolean(cleanedUrl && cleanedKey);
 
@@ -63,6 +64,23 @@ export const supabaseClient: SupabaseClient | null = (() => {
     return createClient(cleanedUrl, cleanedKey);
   } catch (err) {
     console.warn('[Supabase] Initialization error:', err);
+    return null;
+  }
+})();
+
+export const supabaseAdmin: SupabaseClient | null = (() => {
+  if (!cleanedUrl) return null;
+  const keyToUse = cleanedServiceRoleKey || cleanedKey;
+  if (!keyToUse) return null;
+  try {
+    return createClient(cleanedUrl, keyToUse, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  } catch (err) {
+    console.warn('[Supabase Admin] Initialization error:', err);
     return null;
   }
 })();

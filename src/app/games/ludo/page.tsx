@@ -686,19 +686,115 @@ function MythicSplashScreenIntro({ onComplete, lang, isMuted }: CinematicIntroPr
   );
 }
 
+interface PublicLudoRoom {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  hostName: string;
+  hostAvatar: string;
+  flag: string;
+  playerCount: 2 | 4;
+  currentPlayers: number;
+  spectatorsCount: number;
+  entryFee: number;
+  prizeAmount: number;
+  status: 'waiting' | 'in_game';
+  modeType: 'classic' | 'blitz';
+}
+
+const LUDO_PUBLIC_ROOMS: PublicLudoRoom[] = [
+  {
+    id: 'room-vip-1',
+    nameAr: '🏰 قاعة الملوك الكبرى (VIP)',
+    nameEn: 'Grand Kings Hall (VIP)',
+    hostName: 'الساحر الملكي',
+    hostAvatar: '/laugh_emote.png',
+    flag: '🇪🇬',
+    playerCount: 4,
+    currentPlayers: 3,
+    spectatorsCount: 4,
+    entryFee: 100,
+    prizeAmount: 380,
+    status: 'waiting',
+    modeType: 'classic',
+  },
+  {
+    id: 'room-blitz-2',
+    nameAr: '⚡ تحدي النرد السريع (خاطف)',
+    nameEn: 'Blitz Dice Showdown',
+    hostName: 'صقر الخليج',
+    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr',
+    flag: '🇸🇦',
+    playerCount: 2,
+    currentPlayers: 1,
+    spectatorsCount: 2,
+    entryFee: 50,
+    prizeAmount: 95,
+    status: 'waiting',
+    modeType: 'blitz',
+  },
+  {
+    id: 'room-classic-3',
+    nameAr: '🎲 مجلس أبطال لودو العربي',
+    nameEn: 'Arab Ludo Champions Majlis',
+    hostName: 'حنين نورتي',
+    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen',
+    flag: '🇦🇪',
+    playerCount: 4,
+    currentPlayers: 4,
+    spectatorsCount: 7,
+    entryFee: 500,
+    prizeAmount: 1900,
+    status: 'in_game',
+    modeType: 'classic',
+  },
+  {
+    id: 'room-alex-4',
+    nameAr: '🌊 ملتقى الإسكندرية الدولي',
+    nameEn: 'Alexandria Shore Arena',
+    hostName: 'البرنس المصري',
+    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=AhmedEG',
+    flag: '🇪🇬',
+    playerCount: 4,
+    currentPlayers: 2,
+    spectatorsCount: 3,
+    entryFee: 50,
+    prizeAmount: 190,
+    status: 'waiting',
+    modeType: 'classic',
+  },
+];
+
 function LudoApp() {
   const searchParams = useSearchParams();
   const lang = searchParams.get('lang') || 'ar';
   const queryUserId = searchParams.get('userId');
   const queryUsername = searchParams.get('username');
   const queryAvatar = searchParams.get('avatar');
+  const queryAutoStart = searchParams.get('autoStart') === 'true';
+  const queryRole = (searchParams.get('role') as 'player' | 'spectator') || 'player';
+  const queryPlayers = searchParams.get('players');
+  const queryPieces = searchParams.get('pieces');
+  const queryWinRule = searchParams.get('winRule');
+  const queryStake = searchParams.get('stake');
+  const queryRoomName = searchParams.get('roomName');
 
-  const [gameStarted, setGameStarted] = useState<boolean>(false);
-  const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(true);
+  const initialPlayerCount = (queryPlayers === '2' ? 2 : 4) as 2 | 3 | 4;
+  const initialPieceCount = queryPieces === '2' ? 2 : 4;
+  const initialWinRule = (queryWinRule === 'first' ? 'first' : 'all') as 'first' | 'all';
+
+  const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room'>('rooms');
+  const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryRole);
+  const [gameStarted, setGameStarted] = useState<boolean>(queryAutoStart);
+  const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
   const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>('classic');
-  const [playerCount, setPlayerCount] = useState<2 | 3 | 4>(4);
-  const [pieceCount, setPieceCount] = useState<number>(4);
-  const [winRule, setWinRule] = useState<'first' | 'all'>('all');
+  const [playerCount, setPlayerCount] = useState<2 | 3 | 4>(initialPlayerCount);
+  const [pieceCount, setPieceCount] = useState<number>(initialPieceCount);
+  const [winRule, setWinRule] = useState<'first' | 'all'>(initialWinRule);
+  const [roomStake, setRoomStake] = useState<number>(queryStake ? parseInt(queryStake, 10) : 50);
+  const [roomTitle, setRoomTitle] = useState<string>(
+    queryRoomName || (lang === 'ar' ? 'غرفة لودو الملكية 👑' : 'Royal Ludo Room 👑')
+  );
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [winner, setWinner] = useState<PlayerColor | null>(null);
   const [winReward, setWinReward] = useState<number>(0);
@@ -739,17 +835,23 @@ function LudoApp() {
     };
   }>({});
 
-  const [playerConfig, setPlayerConfig] = useState<{ [key in PlayerColor]: 'human' | 'bot' | 'none' }>({
-    red: 'bot',
-    green: 'bot',
-    blue: 'human',
-    yellow: 'bot',
+  const [playerConfig, setPlayerConfig] = useState<{ [key in PlayerColor]: 'human' | 'bot' | 'none' }>(() => {
+    if (queryRole === 'spectator') {
+      if (initialPlayerCount === 2) {
+        return { blue: 'bot', green: 'bot', red: 'none', yellow: 'none' };
+      }
+      return { blue: 'bot', green: 'bot', red: 'bot', yellow: 'bot' };
+    }
+    if (initialPlayerCount === 2) {
+      return { blue: 'human', green: 'bot', red: 'none', yellow: 'none' };
+    }
+    return { blue: 'human', green: 'bot', red: 'bot', yellow: 'bot' };
   });
 
   const [userProfile, setUserProfile] = useState<any>(() => {
     return {
-      id: queryUserId || 'guest',
-      username: queryUsername || (lang === 'ar' ? 'البطل الأسطوري' : 'Champion'),
+      id: queryUserId || '12842582',
+      username: queryUsername || (lang === 'ar' ? 'Ali' : 'Ali'),
       avatar_url: queryAvatar || null,
     };
   });
@@ -864,6 +966,23 @@ function LudoApp() {
     lang === 'ar' ? '🎲 دورك الآن! اضغط على النرد للعب.' : '🎲 Your turn! Click your dice to roll.'
   );
 
+  // Live Room Ticker & Bottom Interaction States (Yalla Ludo Style)
+  const [chatTab, setChatTab] = useState<'all' | 'gift' | 'news'>('all');
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; user?: string; text: string; type: 'chat' | 'gift' | 'system' }>>([
+    { id: '1', text: '🎮 مرحباً بكم في غرفة لودو الممالك الرسمية!', type: 'system' },
+    { id: '2', user: 'حنين', text: 'نورتى الغرفة يا علي ✨', type: 'chat' },
+    { id: '3', text: '🏆 البطولة بدأت، نرد الحظ في الميدان!', type: 'news' }
+  ]);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [showQuickChat, setShowQuickChat] = useState(false);
+  const [showEmotesBar, setShowEmotesBar] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [quickInputText, setQuickInputText] = useState('');
+
+  const addChatMessage = (text: string, type: 'chat' | 'gift' | 'system' | 'news' = 'system', user?: string) => {
+    setChatMessages(prev => [{ id: Date.now().toString(), text, type: type as any, user }, ...prev.slice(0, 19)]);
+  };
+
   const getPlayerName = (color: PlayerColor) => {
     if (playerConfig[color] === 'human') {
       if (color === 'blue') return userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)');
@@ -894,8 +1013,9 @@ function LudoApp() {
   const startGame = () => {
     try {
       setGameStarted(true);
+      const isSpectator = userRole === 'spectator';
       const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
-        blue: 'human',
+        blue: isSpectator ? 'bot' : 'human',
         green: 'none',
         red: 'none',
         yellow: 'none',
@@ -938,7 +1058,9 @@ function LudoApp() {
 
       setGameStarted(true);
       setStatusMessage(
-        lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.'
+        isSpectator
+          ? (lang === 'ar' ? '🎙️ أنت في مقاعد المتفرجين على المايك! يمكنك إرسال الهدايا وتشجيع اللاعبين.' : '🎙️ You are spectating from the mic seats! Send gifts & cheer!')
+          : (lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.')
       );
     } catch (err) {
       console.error('Error starting game:', err);
@@ -949,6 +1071,7 @@ function LudoApp() {
     setWinner(null);
     setWinReward(0);
     setGameStarted(false);
+    setLobbyView('rooms');
     setGameState('waiting_roll');
     setTurn('blue');
     setRollingDicePlayer(null);
@@ -2032,68 +2155,8 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
     const cells = [];
     for (let r = 0; r < 15; r++) {
       for (let c = 0; c < 15; c++) {
-        // Corner 6x6 Bases
+        // Skip corner 6x6 Bases: rendered as dedicated inside-the-color base containers!
         if ((r < 6 && c < 6) || (r < 6 && c > 8) || (r > 8 && c < 6) || (r > 8 && c > 8)) {
-          let slotColor: PlayerColor | null = null;
-          let slotIndex = 0;
-          let isSlot = false;
-
-          // Green (Top-Left)
-          if (r === 1 && c === 1) { isSlot = true; slotColor = 'green'; slotIndex = 0; }
-          else if (r === 1 && c === 4) { isSlot = true; slotColor = 'green'; slotIndex = 1; }
-          else if (r === 4 && c === 1) { isSlot = true; slotColor = 'green'; slotIndex = 2; }
-          else if (r === 4 && c === 4) { isSlot = true; slotColor = 'green'; slotIndex = 3; }
-
-          // Yellow (Top-Right)
-          else if (r === 1 && c === 10) { isSlot = true; slotColor = 'yellow'; slotIndex = 0; }
-          else if (r === 1 && c === 13) { isSlot = true; slotColor = 'yellow'; slotIndex = 1; }
-          else if (r === 4 && c === 10) { isSlot = true; slotColor = 'yellow'; slotIndex = 2; }
-          else if (r === 4 && c === 13) { isSlot = true; slotColor = 'yellow'; slotIndex = 3; }
-
-          // Red (Bottom-Left)
-          else if (r === 10 && c === 1) { isSlot = true; slotColor = 'red'; slotIndex = 0; }
-          else if (r === 10 && c === 4) { isSlot = true; slotColor = 'red'; slotIndex = 1; }
-          else if (r === 13 && c === 1) { isSlot = true; slotColor = 'red'; slotIndex = 2; }
-          else if (r === 13 && c === 4) { isSlot = true; slotColor = 'red'; slotIndex = 3; }
-
-          // Blue (Bottom-Right)
-          else if (r === 10 && c === 10) { isSlot = true; slotColor = 'blue'; slotIndex = 0; }
-          else if (r === 10 && c === 13) { isSlot = true; slotColor = 'blue'; slotIndex = 1; }
-          else if (r === 13 && c === 10) { isSlot = true; slotColor = 'blue'; slotIndex = 2; }
-          else if (r === 13 && c === 13) { isSlot = true; slotColor = 'blue'; slotIndex = 3; }
-
-          if (isSlot && slotColor && playerConfig[slotColor] !== 'none') {
-            const token = tokens.find(t => t.id === `${slotColor}-${slotIndex}`);
-            const isAtHome = token && token.position === -1;
-            const isActive = pieceCount === 4 || slotIndex === 0 || slotIndex === 1;
-            const isTurn = turn === slotColor;
-            const isValidMove = isTurn && gameState === 'waiting_move' && diceValues[turn] === 6 && isAtHome;
-
-            let padGlow = '';
-            if (slotColor === 'red') padGlow = 'border-rose-500/70 bg-rose-950/60 shadow-[0_0_10px_rgba(244,63,94,0.4)]';
-            if (slotColor === 'green') padGlow = 'border-emerald-500/70 bg-emerald-950/60 shadow-[0_0_10px_rgba(16,185,129,0.4)]';
-            if (slotColor === 'blue') padGlow = 'border-cyan-500/70 bg-cyan-950/60 shadow-[0_0_10px_rgba(6,182,212,0.4)]';
-            if (slotColor === 'yellow') padGlow = 'border-amber-500/70 bg-amber-950/60 shadow-[0_0_10px_rgba(245,158,11,0.4)]';
-
-            cells.push(
-              <div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className="relative flex items-center justify-center p-0.5">
-                {isActive && isAtHome && (
-                  <div
-                    onClick={() => { if (isValidMove && token) handleTokenClick(token); }}
-                    className={`w-[95%] h-[95%] rounded-full border-2 ${padGlow} flex items-center justify-center transition-all duration-300 ${isValidMove ? 'cursor-pointer hover:scale-110 z-20' : ''
-                      }`}
-                  >
-                    <SpaceToken color={slotColor} isSelectable={isValidMove} />
-                  </div>
-                )}
-                {!isActive && (
-                  <div className="w-[75%] h-[75%] rounded-full bg-slate-900/30 border border-slate-800/40 opacity-20" />
-                )}
-              </div>
-            );
-          } else {
-            cells.push(<div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className="" />);
-          }
           continue;
         }
 
@@ -2202,6 +2265,12 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
     return (
       <>
+        {/* 4 Inside-The-Color Corner Bases (Yalla Ludo Style) */}
+        {renderCornerBase('green')}
+        {renderCornerBase('yellow')}
+        {renderCornerBase('red')}
+        {renderCornerBase('blue')}
+
         {cells}
 
         {/* Center Home: 4 Distinct Color Quadrants (بيت القطع المنتهية) */}
@@ -2422,292 +2491,305 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
     }
   };
 
-  const renderPlayerCard = (playerColor: PlayerColor, mode: 'mobile' | 'desktop') => {
-    const isActive = turn === playerColor;
-    const isThisDiceRolling = rollingDicePlayer === playerColor;
+  // 1. Crystal-Clear Responsive Acrylic SVG Dice Widget (Matches Image 1)
+  const renderDiceWidget = (playerColor: PlayerColor) => {
+    const isTurn = turn === playerColor;
     const isBlue = playerColor === 'blue';
+    const isRolling = rollingDicePlayer === playerColor;
+    const val = diceValues[playerColor] || 1;
+    const canClick = isTurn && isBlue && gameState === 'waiting_roll' && rollingDicePlayer === null && !winner;
 
-    const colorMap = {
-      red: { marker: '🔴' },
-      green: { marker: '🟢' },
-      blue: { marker: '🔵' },
-      yellow: { marker: '🟡' },
+    const pips: Record<number, [number, number][]> = {
+      1: [[50, 50]],
+      2: [[28, 28], [72, 72]],
+      3: [[28, 28], [50, 50], [72, 72]],
+      4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+      5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+      6: [[28, 28], [72, 28], [28, 50], [72, 50], [28, 72], [72, 72]],
     };
-    const c = colorMap[playerColor];
-
-    const render3DDiceFace = (val: number) => {
-      const createDots = (count: number) => {
-        return Array.from({ length: 9 }).map((_, idx) => {
-          const pattern: Record<number, number[]> = {
-            1: [4],
-            2: [0, 8],
-            3: [0, 4, 8],
-            4: [0, 2, 6, 8],
-            5: [0, 2, 4, 6, 8],
-            6: [0, 2, 3, 5, 6, 8],
-          };
-          const hasDot = pattern[count]?.includes(idx);
-          if (hasDot) {
-            const isOne = count === 1;
-            return (
-              <div
-                key={idx}
-                className={`w-2.5 h-2.5 rounded-full shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)] ${
-                  isOne ? 'bg-rose-600 ring-1 ring-rose-400' : 'bg-[#1e1b4b]'
-                }`}
-              />
-            );
-          }
-          return <div key={idx} className="w-2.5 h-2.5" />;
-        });
-      };
-
-      const rotationMap = {
-        1: { x: 0, y: 0 },
-        2: { x: -90, y: 0 },
-        3: { x: 0, y: -90 },
-        4: { x: 0, y: 90 },
-        5: { x: 90, y: 0 },
-        6: { x: 180, y: 0 },
-      };
-
-      const targetRot = rotationMap[val as keyof typeof rotationMap] || { x: 0, y: 0 };
-
-      let dynamicStyle = {};
-      if (isThisDiceRolling) {
-        dynamicStyle = {
-          animation: 'ludo-dice-spin 0.4s linear infinite',
-        };
-      } else {
-        dynamicStyle = {
-          transform: `rotateX(${targetRot.x}deg) rotateY(${targetRot.y}deg)`,
-          transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-        };
-      }
-
-      return (
-        <div className="w-12 h-12 sm:w-13 sm:h-13" style={{ perspective: '400px' }}>
-          <div className="w-full h-full relative preserve-3d" style={dynamicStyle}>
-            {/* Front = 1 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateY(0deg) translateZ(24px)' }}
-            >
-              {createDots(1)}
-            </div>
-            {/* Back = 6 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateY(180deg) translateZ(24px)' }}
-            >
-              {createDots(6)}
-            </div>
-            {/* Right = 3 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateY(90deg) translateZ(24px)' }}
-            >
-              {createDots(3)}
-            </div>
-            {/* Left = 4 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateY(-90deg) translateZ(24px)' }}
-            >
-              {createDots(4)}
-            </div>
-            {/* Top = 2 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateX(90deg) translateZ(24px)' }}
-            >
-              {createDots(2)}
-            </div>
-            {/* Bottom = 5 */}
-            <div
-              className="ludo-dice-face absolute w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 border-2 border-slate-300 rounded-[10px] flex flex-wrap content-center justify-center p-1.5 gap-[3px] shadow-[inset_0_0_10px_rgba(255,255,255,1),0_4px_8px_rgba(0,0,0,0.3)]"
-              style={{ transform: 'rotateX(-90deg) translateZ(24px)' }}
-            >
-              {createDots(5)}
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const idMap = {
-      blue: '#U-7794',
-      red: '#B-1102',
-      green: '#B-8839',
-      yellow: '#B-4412'
-    };
-
-    const activeChar = playerEmotes[playerColor]?.character;
-    let avatarSymbol = c.marker;
-    let avatarBorder = 'border-white/20';
-    let avatarBg = 'bg-slate-950/40';
-
-    if (activeChar === 'wizard') {
-      avatarSymbol = '🧙‍♂️';
-      avatarBorder = 'border-violet-400 animate-pulse';
-      avatarBg = 'bg-violet-950';
-    } else if (activeChar === 'iron_hero') {
-      avatarSymbol = '🤖';
-      avatarBorder = 'border-cyan-400 animate-pulse';
-      avatarBg = 'bg-cyan-950';
-    } else if (activeChar === 'ranger') {
-      avatarSymbol = '🏹';
-      avatarBorder = 'border-emerald-400 animate-pulse';
-      avatarBg = 'bg-emerald-950';
-    }
-
-    let borderColor = 'border-slate-800';
-    if (playerColor === 'red') borderColor = 'border-rose-500/40';
-    else if (playerColor === 'green') borderColor = 'border-emerald-500/40';
-    else if (playerColor === 'blue') borderColor = 'border-cyan-500/40';
-    else if (playerColor === 'yellow') borderColor = 'border-amber-500/40';
-
-    let activeBorder = 'border-amber-400 ring-2 ring-amber-400/60 shadow-[0_0_25px_rgba(251,191,36,0.6)]';
-    if (playerColor === 'red') activeBorder = 'border-rose-400 ring-2 ring-rose-400/60 shadow-[0_0_25px_rgba(248,113,113,0.6)]';
-    else if (playerColor === 'green') activeBorder = 'border-emerald-400 ring-2 ring-emerald-400/60 shadow-[0_0_25px_rgba(74,222,128,0.6)]';
-    else if (playerColor === 'blue') activeBorder = 'border-cyan-400 ring-2 ring-cyan-400/60 shadow-[0_0_25px_rgba(96,165,250,0.6)]';
-
-    const dispName = (isBlue && userProfile?.username) ? userProfile.username : getPlayerName(playerColor);
-    const dispId = (isBlue && userProfile?.id) ? `#U-${String(userProfile.id).slice(0, 4)}` : idMap[playerColor];
-
-    let avatarUrl = (isBlue && userProfile?.avatar_url) ? userProfile.avatar_url : null;
-    if (playerConfig[playerColor] === 'bot') {
-      if (playerColor === 'red') avatarUrl = '/laugh_emote.png';
-      if (playerColor === 'green') avatarUrl = '/dragon_emote.png';
-      if (playerColor === 'yellow') avatarUrl = '/kaizen_emoji_pack.png';
-    }
-
-    const impact = activeImpacts[playerColor];
+    const dots = pips[val] || pips[1];
+    const isOne = val === 1;
 
     return (
       <div
-        key={`card-${playerColor}-${mode}`}
-        onClick={() => {
-          if (isActive && isBlue && rollingDicePlayer === null && !winner) {
+        onClick={(e) => {
+          e.stopPropagation();
+          if (canClick) {
             rollDice();
           }
         }}
-        className={`relative z-20 flex flex-col items-center justify-between p-2 sm:p-2.5 bg-slate-950/95 border-2 ${
-          isActive ? `${activeBorder} scale-105` : `${borderColor} opacity-85`
-        } rounded-2xl transition-all duration-300 shadow-xl ${
-          isActive && isBlue && rollingDicePlayer === null && !winner ? 'cursor-pointer' : ''
-        } ${
-          mode === 'mobile' ? 'w-[115px] sm:w-[130px]' : 'w-[130px] sm:w-[140px]'
+        className={`relative w-8 h-8 sm:w-10 sm:h-10 transition-all select-none ${
+          canClick ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'
+        } ${isRolling ? 'animate-dice-tumble' : ''}`}
+        title={canClick ? (lang === 'ar' ? 'انقر لرمي النرد!' : 'Click to roll dice!') : ''}
+      >
+        {/* Turn pointer arrow ▼ above the dice (Matching Image 1!) */}
+        {isTurn && !winner && (
+          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-emerald-300 text-xs sm:text-sm font-black animate-bounce pointer-events-none z-30 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+            ▼
+          </div>
+        )}
+
+        {/* Glossy White Acrylic Dice Box */}
+        <div
+          className={`w-full h-full rounded-xl bg-white border-2 ${
+            isTurn ? 'border-amber-400 ring-2 ring-amber-300 shadow-[0_0_14px_rgba(251,191,36,0.9)]' : 'border-slate-300 shadow-md'
+          } p-1 flex items-center justify-center relative overflow-hidden`}
+        >
+          <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
+            {/* Sheen */}
+            <path d="M 10 10 Q 50 2 90 10 Q 90 35 10 35 Z" fill="rgba(255,255,255,0.8)" />
+            {dots.map(([cx, cy], i) => (
+              <circle
+                key={i}
+                cx={cx}
+                cy={cy}
+                r={isOne ? 18 : 11}
+                fill={isOne ? '#e11d48' : '#0f172a'}
+                filter="drop-shadow(0px 1px 1.5px rgba(0,0,0,0.4))"
+              />
+            ))}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  // 2. Token Home Slot inside the Base
+  const renderTokenHomeSlot = (baseColor: PlayerColor, slotIndex: number) => {
+    const isTokenActive = pieceCount === 4 || slotIndex === 0 || slotIndex === 1;
+    const token = tokens.find(t => t.id === `${baseColor}-${slotIndex}`);
+    const isAtHome = token && token.position === -1;
+    const isTurn = turn === baseColor;
+    const isValidMove = isTurn && gameState === 'waiting_move' && diceValues[turn] === 6 && isAtHome;
+
+    return (
+      <div
+        key={`slot-${baseColor}-${slotIndex}`}
+        className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/35 border border-white/20 shadow-inner flex items-center justify-center"
+      >
+        {isTokenActive && isAtHome && token ? (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isValidMove) {
+                handleTokenClick(token);
+              }
+            }}
+            className={`w-[90%] h-[90%] rounded-full flex items-center justify-center transition-all ${
+              isValidMove ? 'cursor-pointer animate-bounce ring-2 ring-amber-300 z-30' : ''
+            }`}
+          >
+            <ThemedLudoToken color={baseColor} isSelectable={isValidMove} />
+          </div>
+        ) : !isTokenActive ? (
+          <span className="text-[8px] opacity-20">🔒</span>
+        ) : null}
+      </div>
+    );
+  };
+
+  // 3. Inside-The-Color 6x6 Corner Base (Matching Image 1)
+  const renderCornerBase = (baseColor: PlayerColor) => {
+    const isPresent = playerConfig[baseColor] !== 'none';
+    const isTurn = turn === baseColor;
+    const isBlue = baseColor === 'blue';
+    const isBot = playerConfig[baseColor] === 'bot';
+
+    let gridStyle = { gridRow: '1 / 7', gridColumn: '1 / 7' };
+    if (baseColor === 'yellow') gridStyle = { gridRow: '1 / 7', gridColumn: '10 / 16' };
+    else if (baseColor === 'red') gridStyle = { gridRow: '10 / 16', gridColumn: '1 / 7' };
+    else if (baseColor === 'blue') gridStyle = { gridRow: '10 / 16', gridColumn: '10 / 16' };
+
+    const colorConfig = {
+      green: {
+        bg: 'bg-emerald-600',
+        border: 'border-emerald-500/90',
+        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        avatarBorder: 'border-emerald-300',
+        defaultName: 'Ali Ali',
+        botName: lang === 'ar' ? 'الأخضر (روبوت)' : 'Green (Bot)',
+        avatarUrl: '/dragon_emote.png',
+        fallbackAvatar: '🟢',
+      },
+      yellow: {
+        bg: 'bg-amber-500',
+        border: 'border-amber-400/90',
+        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.35),0_4px_12px_rgba(0,0,0,0.35)]',
+        avatarBorder: 'border-amber-200',
+        defaultName: 'محمود',
+        botName: lang === 'ar' ? 'الأصفر (روبوت)' : 'Yellow (Bot)',
+        avatarUrl: '/kaizen_emoji_pack.png',
+        fallbackAvatar: '🟡',
+      },
+      red: {
+        bg: 'bg-rose-600',
+        border: 'border-rose-400/90',
+        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        avatarBorder: 'border-rose-300',
+        defaultName: 'الساحر',
+        botName: lang === 'ar' ? 'الأحمر (روبوت)' : 'Red (Bot)',
+        avatarUrl: '/laugh_emote.png',
+        fallbackAvatar: '🔴',
+      },
+      blue: {
+        bg: 'bg-blue-600',
+        border: 'border-blue-400/90',
+        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        avatarBorder: 'border-cyan-300',
+        defaultName: userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)'),
+        botName: lang === 'ar' ? 'الأزرق (روبوت)' : 'Blue (Bot)',
+        avatarUrl: userProfile?.avatar_url || '/Ali.jpg',
+        fallbackAvatar: '🔵',
+      },
+    }[baseColor];
+
+    const isSpectator = userRole === 'spectator';
+    const dispName = isBlue
+      ? (isSpectator ? (lang === 'ar' ? 'البرنس (الأزرق)' : 'Prince (Blue)') : (userProfile?.username || colorConfig.defaultName))
+      : colorConfig.defaultName;
+    const avatarImg = isBlue ? (userProfile?.avatar_url || colorConfig.avatarUrl) : colorConfig.avatarUrl;
+    const impact = activeImpacts[baseColor];
+    const isTop = baseColor === 'green' || baseColor === 'yellow';
+    const slotIndices = [0, 1, 2, 3];
+
+    return (
+      <div
+        key={`corner-${baseColor}`}
+        style={gridStyle}
+        className={`w-full h-full relative rounded-2xl sm:rounded-3xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
+          isTurn ? 'ring-2 sm:ring-4 ring-amber-300/90 shadow-[0_0_20px_rgba(251,191,36,0.8)] z-20 scale-[1.01]' : 'opacity-95 z-10'
         }`}
       >
-        {/* Floating coin deduction */}
-        {floatingCoinText && floatingCoinText.player === playerColor && (
-          <div className="absolute -top-6 left-1/2 -translate-x-1/2 z-50 text-amber-400 font-black text-xs animate-bounce whitespace-nowrap bg-slate-950/90 px-2 py-0.5 rounded-full border border-amber-500/40">
+        {/* Active Impact (Gift animation) */}
+        {impact && (
+          <div className="absolute inset-0 z-40 bg-black/85 rounded-2xl flex flex-col items-center justify-center p-1 backdrop-blur-[2px] animate-fadeIn pointer-events-none">
+            <span className="text-2xl animate-bounce">{impact.icon}</span>
+            <span className="text-[9px] font-black text-amber-300 text-center leading-tight mt-0.5">
+              {impact.title}
+            </span>
+          </div>
+        )}
+
+        {/* Floating Coin Text */}
+        {floatingCoinText && floatingCoinText.player === baseColor && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-50 text-amber-300 font-black text-[10px] animate-bounce whitespace-nowrap bg-slate-950/90 px-2 py-0.5 rounded-full border border-amber-500/40">
             {floatingCoinText.text}
           </div>
         )}
 
-        {/* Turn prompt indicator */}
-        {isActive && showDiceArrow && !winner && (
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-lg animate-bounce z-40 whitespace-nowrap border border-amber-300">
-            {lang === 'ar' ? 'دورك ارمِ! 🎲' : 'Your Turn! 🎲'}
+        {!isPresent ? (
+          <div className="w-full h-full flex flex-col items-center justify-center opacity-30 text-white">
+            <span className="text-xl">🔒</span>
+            <span className="text-[9px] font-bold mt-1">{lang === 'ar' ? 'مقعد شاغر' : 'Empty'}</span>
           </div>
-        )}
+        ) : (
+          <>
+            {isTop ? (
+              /* Profile Header + Dice for Top Bases (Green & Yellow) */
+              <div className="w-full flex items-center justify-between gap-1">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!isBlue) setSelectedGiftTarget(baseColor);
+                  }}
+                  className={`flex items-center gap-1.5 min-w-0 ${!isBlue ? 'cursor-pointer hover:opacity-90 active:scale-95' : ''}`}
+                  title={!isBlue ? (lang === 'ar' ? 'انقر لإرسال هدية أو مقلب 🎁' : 'Click to send gift 🎁') : ''}
+                >
+                  <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
+                    <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
+                    {avatarImg && (
+                      <img
+                        src={avatarImg}
+                        alt={dispName}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                    {!isBlue && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-[8px] flex items-center justify-center shadow z-10">
+                        🎁
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
+                      {dispName}
+                    </span>
+                    {isBlue && (
+                      <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
+                        🪙 {playerCoins}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-        {/* Active Impact on this player card */}
-        {impact && (
-          <div className="absolute inset-0 z-40 bg-black/85 rounded-2xl flex flex-col items-center justify-center p-1.5 backdrop-blur-[2px] animate-fadeIn pointer-events-none">
-            <span className="text-2xl animate-bounce">{impact.icon}</span>
-            <span className="text-[10px] font-black text-amber-300 text-center leading-tight mt-0.5">
-              {impact.title}
-            </span>
-            <span className="text-[8px] text-slate-300 text-center truncate max-w-full">
-              من: {impact.fromName}
-            </span>
-          </div>
-        )}
-
-        {/* 1. TOP HEADER / HEAD OF THE PROFILE BOX: Gift Box Button */}
-        <div className="w-full flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1">
-          <div className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${
-              playerColor === 'red' ? 'bg-red-500 shadow-[0_0_6px_#ef4444]' :
-              playerColor === 'green' ? 'bg-green-500 shadow-[0_0_6px_#22c55e]' :
-              playerColor === 'blue' ? 'bg-blue-500 shadow-[0_0_6px_#3b82f6]' :
-              'bg-yellow-500 shadow-[0_0_6px_#eab308]'
-            }`} />
-            <span className="text-[8px] font-sans font-bold text-slate-400">
-              {dispId}
-            </span>
-          </div>
-
-          {/* 🎁 Gift Box on the head of the profile */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedGiftTarget(playerColor);
-            }}
-            className="p-1 px-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 text-amber-300 shadow-md active:scale-90 transition-all cursor-pointer flex items-center gap-1 z-30"
-            title={lang === 'ar' ? 'إرسال هدية أو مقلب (الترحيب والشبشب)' : 'Send Gift / Prank'}
-          >
-            <span className="text-xs sm:text-sm">🎁</span>
-            <span className="text-[8px] font-black">{lang === 'ar' ? 'هدية' : 'Gift'}</span>
-          </button>
-        </div>
-
-        {/* 2. PROFILE: Avatar Picture with Name Underneath */}
-        <div className="flex flex-col items-center justify-center w-full my-0.5">
-          {/* Avatar Picture */}
-          <div className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-xl border-2 shadow-lg overflow-hidden shrink-0 ${
-            impact ? 'animate-[slap-shake-avatar_0.6s_ease-in-out_infinite]' : ''
-          } ${avatarBg} ${avatarBorder}`}>
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                <div className="shrink-0">
+                  {renderDiceWidget(baseColor)}
+                </div>
+              </div>
             ) : (
-              avatarSymbol
-            )}
-            {impact && ['egg', 'tomato'].includes(impact.effect) && (
-              <div className="absolute inset-0 bg-amber-400/80 rounded-full flex items-center justify-center text-xs">
-                🍳
+              /* 4 Token Home Pads for Bottom Bases (Red & Blue) */
+              <div className="w-full flex items-center justify-around py-0.5">
+                {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
               </div>
             )}
-          </div>
 
-          {/* Player Name Underneath the Picture */}
-          <span className="text-[10px] sm:text-xs font-black text-amber-300 truncate max-w-full text-center mt-1 block">
-            {dispName}
-          </span>
+            {isTop ? (
+              /* 4 Token Home Pads for Top Bases (Green & Yellow) */
+              <div className="w-full flex items-center justify-around py-0.5">
+                {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
+              </div>
+            ) : (
+              /* Profile Footer + Dice for Bottom Bases (Red & Blue - Exact Match to Image 1!) */
+              <div className="w-full flex items-center justify-between gap-1 mt-auto pt-0.5">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!isBlue) setSelectedGiftTarget(baseColor);
+                  }}
+                  className={`flex items-center gap-1.5 min-w-0 ${!isBlue ? 'cursor-pointer hover:opacity-90 active:scale-95' : ''}`}
+                  title={!isBlue ? (lang === 'ar' ? 'انقر لإرسال هدية أو مقلب 🎁' : 'Click to send gift 🎁') : ''}
+                >
+                  <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
+                    <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
+                    {avatarImg && (
+                      <img
+                        src={avatarImg}
+                        alt={dispName}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                    {!isBlue && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-[8px] flex items-center justify-center shadow z-10">
+                        🎁
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
+                      {dispName}
+                    </span>
+                    {isBlue && (
+                      <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
+                        🪙 {playerCoins}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-          {/* Coins for Blue player */}
-          {isBlue && (
-            <span className="text-[8px] font-black text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30 mt-0.5">
-              🪙 {playerCoins}
-            </span>
-          )}
-        </div>
-
-        {/* 3. 3D DICE BUTTON: Crystal Clear, Big and Working */}
-        <div className="w-full pt-1.5 mt-1 border-t border-slate-800/80 flex items-center justify-center">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isActive && rollingDicePlayer === null && !winner) {
-                rollDice();
-              }
-            }}
-            disabled={!isActive || rollingDicePlayer !== null || !!winner}
-            className={`w-full flex items-center justify-center py-1 rounded-xl transition-all ${
-              isActive && rollingDicePlayer === null && !winner
-                ? 'cursor-pointer hover:scale-105 active:scale-95 bg-amber-500/15 border border-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60'
-                : 'cursor-not-allowed opacity-90'
-            } ${isThisDiceRolling ? 'animate-dice-tumble' : ''}`}
-            title={isActive ? (lang === 'ar' ? 'انقر لرمي النرد!' : 'Click to roll dice!') : ''}
-          >
-            {render3DDiceFace(diceValues[playerColor])}
-          </button>
-        </div>
+                <div className="shrink-0">
+                  {renderDiceWidget(baseColor)}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   };
@@ -2742,7 +2824,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
   };
 
   return (
-    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans">
+    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none touch-manipulation">
 
       {/* 5-Second Animated Splash Screen / Intro Scene */}
       {showCinematicIntro && (
@@ -2808,336 +2890,694 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       {/* Main Content Area */}
       {!gameStarted ? (
-        /* Game Setup Lobby */
-        <div className="flex-1 flex items-center justify-center p-2 sm:p-3 lg:p-4 relative overflow-y-auto w-full">
-          {/* Background Card Artwork */}
-          <div
-            className="absolute inset-0 bg-cover bg-center -z-10 opacity-25 filter blur-sm scale-105 pointer-events-none select-none"
-            style={{ backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')` }}
-          />
+        lobbyView === 'rooms' ? (
+          /* VIEW 1: ACTIVE ROOMS LOBBY (كروت الغرف المباشرة + زر إنشاء غرفة) */
+          <div className="flex-1 flex items-center justify-center p-3 sm:p-5 relative overflow-y-auto w-full">
+            <div
+              className="absolute inset-0 bg-cover bg-center -z-10 opacity-20 filter blur-md scale-105 pointer-events-none select-none"
+              style={{ backgroundImage: `url('/classic_ludo_board.svg')` }}
+            />
 
-          <div className="w-full max-w-md sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl bg-slate-950/95 border border-cyan-500/30 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 lg:p-6 shadow-[0_0_60px_rgba(6,182,212,0.2)] backdrop-blur-xl relative z-20 pointer-events-auto touch-manipulation flex flex-col gap-2.5 sm:gap-3.5 lg:gap-4 max-h-[95vh] overflow-y-auto">
+            <div className="w-full max-w-4xl bg-slate-950/95 border border-emerald-500/30 rounded-3xl p-4 sm:p-6 shadow-[0_0_60px_rgba(16,185,129,0.25)] backdrop-blur-xl relative z-20 flex flex-col gap-4 max-h-[92vh] overflow-y-auto">
+              {/* Header with Title and Create Room Hero Button */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div className="text-center sm:text-right">
+                  <h2 className="text-lg sm:text-2xl font-black bg-gradient-to-r from-emerald-400 via-amber-300 to-yellow-400 bg-clip-text text-transparent flex items-center gap-2 justify-center sm:justify-start">
+                    <span>🎲</span>
+                    <span>{lang === 'ar' ? 'صالة غرف لودو الممالك' : 'Mythical Ludo Rooms Hall'}</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {lang === 'ar' ? 'انضم إلى أي غرفة مباشرة كلاعب أو متفرج، أو أنشئ غرفتك الخاصة 🏰' : 'Join any live room as player or spectator, or create your room 🏰'}
+                  </p>
+                </div>
 
-            {/* Header */}
-            <div className="text-center pointer-events-none select-none">
-              <span className="inline-block p-1.5 sm:p-2 lg:p-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-br from-amber-500/20 to-cyan-500/20 border border-amber-400/30 text-xl sm:text-2xl lg:text-3xl mb-1 shadow-md">
-                👑
-              </span>
-              <h2 className="text-base sm:text-xl lg:text-2xl font-black text-white tracking-wide">
-                {lang === 'ar' ? 'غرفة تجهيز معركة اللودو' : 'Ludo Battle Setup'}
-              </h2>
-              <p className="text-[11px] sm:text-xs lg:text-sm text-slate-400">
-                {lang === 'ar' ? 'اختر شكل البورد وعدد المقاتلين وقواعد النصر قبل بدء الحرب' : 'Customize board skin, warriors and rules before battle'}
-              </p>
-            </div>
+                {/* Create Room Button */}
+                <button
+                  type="button"
+                  onClick={() => setLobbyView('create_room')}
+                  className="px-5 py-2.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.5)] active:scale-95 transition-all cursor-pointer flex items-center gap-2 shrink-0 border border-amber-300"
+                >
+                  <span className="text-base">➕</span>
+                  <span>{lang === 'ar' ? 'إنشاء غرفة جديدة' : 'Create New Room'}</span>
+                </button>
+              </div>
 
-            {/* 1. Board Theme Selector (اختيار شكل البورد) */}
-            <div className="space-y-1 sm:space-y-1.5">
-              <label className="text-[11px] sm:text-xs lg:text-sm font-bold text-slate-200 flex items-center justify-between select-none">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-sm sm:text-base">🎨</span>
-                  <span>{lang === 'ar' ? 'اختيار شكل البورد (الرقعة):' : 'Board Theme / Skin:'}</span>
-                </span>
-                <span className="text-[10px] sm:text-xs text-amber-400 font-extrabold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30">
-                  {BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}
-                </span>
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 lg:gap-3">
-                {(Object.keys(BOARD_SKINS) as BoardTheme[]).map((themeKey) => {
-                  const skin = BOARD_SKINS[themeKey];
-                  const isSelected = selectedBoardSkin === themeKey;
+              {/* Active Live Rooms Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {LUDO_PUBLIC_ROOMS.map((room) => {
+                  const isFull = room.currentPlayers >= room.playerCount;
                   return (
-                    <button
-                      key={themeKey}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedBoardSkin(themeKey);
-                      }}
-                      className={`relative p-1.5 sm:p-2 rounded-xl sm:rounded-2xl border flex flex-col items-center gap-1 sm:gap-1.5 transition-all cursor-pointer touch-manipulation select-none active:scale-95 group ${isSelected
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.35)] ring-2 ring-amber-400/80 scale-[1.02]'
-                        : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300 hover:bg-slate-900'
-                        }`}
+                    <div
+                      key={room.id}
+                      className="bg-slate-900/80 border border-slate-800 hover:border-emerald-500/50 p-4 rounded-2xl flex flex-col justify-between gap-3 transition-all shadow-md hover:shadow-emerald-950/20"
                     >
-                      <div className="w-full h-16 sm:h-20 md:h-24 lg:h-28 rounded-lg sm:rounded-xl overflow-hidden border border-slate-700/60 relative pointer-events-none select-none bg-slate-950">
-                        <img
-                          src={skin.image}
-                          alt={skin.nameEn}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none"
-                        />
-                        {isSelected && (
-                          <div className="absolute top-1 left-1 sm:top-1.5 sm:left-1.5 bg-amber-400 text-slate-950 rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-[10px] sm:text-xs font-black shadow-lg pointer-events-none select-none">
-                            ✓
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <img
+                            src={room.hostAvatar}
+                            alt={room.hostName}
+                            className="w-10 h-10 rounded-full border border-emerald-400/40 bg-slate-900 object-cover"
+                          />
+                          <div>
+                            <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                              <span>{lang === 'ar' ? room.nameAr : room.nameEn}</span>
+                              <span>{room.flag}</span>
+                            </h4>
+                            <p className="text-[10px] text-slate-400">
+                              {lang === 'ar' ? 'المضيف:' : 'Host:'} {room.hostName}
+                            </p>
                           </div>
-                        )}
+                        </div>
+                        <span
+                          className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                            room.status === 'in_game'
+                              ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                          }`}
+                        >
+                          {room.status === 'in_game'
+                            ? (lang === 'ar' ? 'جارية 🔥' : 'In Game 🔥')
+                            : (lang === 'ar' ? 'بانتظار لاعبين ⏳' : 'Waiting ⏳')}
+                        </span>
                       </div>
-                      <span className="text-[10px] sm:text-xs lg:text-sm font-bold truncate max-w-full pointer-events-none select-none">
-                        {skin.icon} {lang === 'ar' ? skin.nameAr : skin.nameEn}
-                      </span>
-                    </button>
+
+                      {/* Room Stats */}
+                      <div className="grid grid-cols-3 gap-2 bg-black/40 p-2 rounded-xl text-center text-[10px]">
+                        <div>
+                          <span className="text-slate-500 block">{lang === 'ar' ? 'اللاعبين' : 'Players'}</span>
+                          <span className="font-black text-emerald-400">
+                            {room.currentPlayers}/{room.playerCount}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">{lang === 'ar' ? 'المتفرجين' : 'Spectators'}</span>
+                          <span className="font-black text-amber-300">
+                            🎙️ {room.spectatorsCount}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">{lang === 'ar' ? 'الجائزة' : 'Prize'}</span>
+                          <span className="font-black text-yellow-400">
+                            {room.prizeAmount} 🪙
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={isFull}
+                          onClick={() => {
+                            setUserRole('player');
+                            setPlayerCount(room.playerCount);
+                            setPieceCount(room.modeType === 'blitz' ? 2 : 4);
+                            startGame();
+                          }}
+                          className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 ${
+                            isFull
+                              ? 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-slate-950 border border-emerald-400 cursor-pointer shadow active:scale-95'
+                          }`}
+                        >
+                          <span>⚔️</span>
+                          <span>{isFull ? (lang === 'ar' ? 'ممتلئ' : 'Full') : (lang === 'ar' ? 'دخول كلاعب' : 'Join Player')}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserRole('spectator');
+                            setPlayerCount(room.playerCount);
+                            setPieceCount(room.modeType === 'blitz' ? 2 : 4);
+                            startGame();
+                          }}
+                          className="py-2 px-2.5 rounded-xl text-xs font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 cursor-pointer shadow active:scale-95 transition-all flex items-center justify-center gap-1"
+                        >
+                          <span>🎙️</span>
+                          <span>{lang === 'ar' ? 'دخول كمتفرج' : 'Join Spectator'}</span>
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </div>
+          </div>
+        ) : (
+          /* VIEW 2: COMPACT SETUP SCREEN IN A SINGLE SCREEN (NO SUMMARY BOX!) */
+          <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative overflow-y-auto w-full">
+            <div
+              className="absolute inset-0 bg-cover bg-center -z-10 opacity-20 filter blur-md scale-105 pointer-events-none select-none"
+              style={{ backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')` }}
+            />
 
-            {/* Middle Grid: Configuration & Match Briefing */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3.5 lg:gap-4 items-stretch">
-              
-              {/* Controls Column */}
-              <div className="flex flex-col gap-2 sm:gap-2.5 justify-between">
-                
-                {/* 2. Player Count Selection */}
-                <div className="space-y-1">
-                  <label className="text-[11px] sm:text-xs lg:text-sm font-bold text-slate-200 block select-none">
-                    {lang === 'ar' ? '👥 عدد اللاعبين في الجولة:' : '👥 Number of Players:'}
-                  </label>
-                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                    {[
-                      { count: 2, labelAr: 'لاعبان (1 ضد 1)', labelEn: '2 Players', icon: '⚔️' },
-                      { count: 3, labelAr: '3 لاعبين', labelEn: '3 Players', icon: '🥉' },
-                      { count: 4, labelAr: '4 لاعبين (كامل)', labelEn: '4 Players', icon: '👑' },
-                    ].map(({ count, labelAr, labelEn, icon }) => (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPlayerCount(count as 2 | 3 | 4);
-                        }}
-                        className={`py-1.5 sm:py-2 lg:py-2.5 px-1.5 rounded-xl border text-[11px] sm:text-xs lg:text-sm font-black transition-all cursor-pointer touch-manipulation select-none active:scale-95 flex flex-col items-center justify-center gap-0.5 ${playerCount === count
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60'
-                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                          }`}
-                      >
-                        <span className="text-sm sm:text-base pointer-events-none select-none">{icon}</span>
-                        <span className="pointer-events-none select-none">{lang === 'ar' ? labelAr : labelEn}</span>
-                      </button>
-                    ))}
+            <div className="w-full max-w-xl bg-slate-950/95 border border-cyan-500/30 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-[0_0_50px_rgba(6,182,212,0.25)] backdrop-blur-xl relative z-20 flex flex-col gap-3">
+              {/* Header with Back Button */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🏰</span>
+                  <div>
+                    <h2 className="text-sm sm:text-base font-black text-white">
+                      {lang === 'ar' ? 'إنشاء وتجهيز غرفة اللودو' : 'Create & Setup Ludo Room'}
+                    </h2>
+                    <p className="text-[10px] text-slate-400">
+                      {lang === 'ar' ? 'حدد الرقعة والقواعد والرهان قبل بدء المعركة' : 'Set board skin, rules, and stakes'}
+                    </p>
                   </div>
                 </div>
 
-                {/* 3. Piece Count Selection */}
-                <div className="space-y-1">
-                  <label className="text-[11px] sm:text-xs lg:text-sm font-bold text-slate-200 block select-none">
-                    {lang === 'ar' ? '🗡️ عدد عساكر كل لاعب:' : '🗡️ Tokens per Player:'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-                    {[
-                      { count: 2, descAr: 'مباراة سريعة ⚡', descEn: 'Fast Match ⚡' },
-                      { count: 4, descAr: 'مباراة كلاسيكية 🛡️', descEn: 'Classic 🛡️' }
-                    ].map(({ count, descAr, descEn }) => (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPieceCount(count);
-                        }}
-                        className={`py-1.5 sm:py-2 lg:py-2.5 px-2 rounded-xl border text-[11px] sm:text-xs lg:text-sm font-black transition-all cursor-pointer touch-manipulation select-none active:scale-95 flex items-center justify-center gap-1 ${pieceCount === count
-                          ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60'
-                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                          }`}
-                      >
-                        <span className="pointer-events-none select-none">{count} {lang === 'ar' ? 'عساكر' : 'Tokens'}</span>
-                        <span className="text-[10px] opacity-80 pointer-events-none select-none">({lang === 'ar' ? descAr : descEn})</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setLobbyView('rooms')}
+                  className="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-colors cursor-pointer"
+                >
+                  {lang === 'ar' ? '← الغرف المباشرة' : '← Active Rooms'}
+                </button>
+              </div>
 
-                {/* 4. Win Rule Selection */}
-                <div className="space-y-1">
-                  <label className="text-[11px] sm:text-xs lg:text-sm font-bold text-slate-200 block select-none">
-                    {lang === 'ar' ? '🏆 قاعدة الفوز:' : '🏆 Win Condition:'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+              {/* 1. Board Theme Selector (Compact) */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-200 flex items-center justify-between">
+                  <span>🎨 {lang === 'ar' ? 'شكل البورد (الرقعة):' : 'Board Skin:'}</span>
+                  <span className="text-[10px] text-amber-400 font-extrabold">
+                    {BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}
+                  </span>
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(Object.keys(BOARD_SKINS) as BoardTheme[]).map((themeKey) => {
+                    const skin = BOARD_SKINS[themeKey];
+                    const isSelected = selectedBoardSkin === themeKey;
+                    return (
+                      <button
+                        key={themeKey}
+                        type="button"
+                        onClick={() => setSelectedBoardSkin(themeKey)}
+                        className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 ring-1 ring-amber-400 shadow'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-lg">{skin.icon}</div>
+                        <div className="text-[9px] font-bold truncate mt-0.5">
+                          {lang === 'ar' ? skin.nameAr : skin.nameEn}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Grid Settings: Players, Tokens, Rules, Stake */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {/* Player Count */}
+                <div className="bg-slate-900/70 p-2 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 block">
+                    👥 {lang === 'ar' ? 'عدد اللاعبين:' : 'Players:'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setWinRule('first');
-                      }}
-                      className={`py-1.5 sm:py-2 lg:py-2.5 px-2 rounded-xl border text-[11px] sm:text-xs lg:text-sm font-black transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${winRule === 'first'
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                        }`}
+                      onClick={() => setPlayerCount(2)}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        playerCount === 2 ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
                     >
-                      <span className="pointer-events-none select-none">{lang === 'ar' ? 'وصول أول عسكري ⚡' : 'First to finish ⚡'}</span>
+                      {lang === 'ar' ? '2 لاعبين (1v1)' : '2 Players'}
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setWinRule('all');
-                      }}
-                      className={`py-1.5 sm:py-2 lg:py-2.5 px-2 rounded-xl border text-[11px] sm:text-xs lg:text-sm font-black transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${winRule === 'all'
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                        }`}
+                      onClick={() => setPlayerCount(4)}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        playerCount === 4 ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
                     >
-                      <span className="pointer-events-none select-none">{lang === 'ar' ? 'وصول جميع العساكر 🏁' : 'All tokens finish 🏁'}</span>
+                      {lang === 'ar' ? '4 لاعبين (كامل)' : '4 Players'}
                     </button>
                   </div>
                 </div>
 
-              </div>
-
-              {/* Tactical Briefing / Match Summary Box */}
-              <div className="bg-slate-900/80 border border-slate-800/90 rounded-2xl p-3 sm:p-4 flex flex-col justify-between text-xs select-none gap-2 shadow-inner">
-                <div>
-                  <div className="flex items-center gap-1.5 pb-2 mb-2 border-b border-slate-800 font-black text-amber-400 text-xs sm:text-sm">
-                    <span>📜</span>
-                    <span>{lang === 'ar' ? 'ملخص معركة اللودو:' : 'Battle Dossier:'}</span>
-                  </div>
-                  <div className="space-y-1.5 text-slate-300 text-[11px] sm:text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{lang === 'ar' ? 'اللاعب الأساسي (أنت):' : 'Main Player:'}</span>
-                      <span className="font-black text-cyan-400 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]"></span>
-                        {userProfile?.username || 'البطل'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{lang === 'ar' ? 'الخصوم (AI):' : 'Opponents (AI):'}</span>
-                      <span className="font-bold text-amber-300">
-                        {playerCount === 2
-                          ? (lang === 'ar' ? 'روبوت واحد ذكي (الأخضر 🟢)' : '1 AI Bot (Green 🟢)')
-                          : playerCount === 3
-                            ? (lang === 'ar' ? '2 روبوتات ذكية (أخضر 🟢، أحمر 🔴)' : '2 AI Bots (Green, Red)')
-                            : (lang === 'ar' ? '3 روبوتات ذكية (أخضر 🟢، أحمر 🔴، أصفر 🟡)' : '3 AI Bots')}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{lang === 'ar' ? 'الرقعة المختارة:' : 'Chosen Board:'}</span>
-                      <span className="text-amber-400 font-black flex items-center gap-1">
-                        <span>{BOARD_SKINS[selectedBoardSkin].icon}</span>
-                        <span>{BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{lang === 'ar' ? 'نمط الجولة:' : 'Match Style:'}</span>
-                      <span className="text-slate-200 font-bold">
-                        {pieceCount === 2
-                          ? (lang === 'ar' ? '⚡ مباراة خاطفة (2 عساكر)' : '⚡ Blitz (2 tokens)')
-                          : (lang === 'ar' ? '🛡️ ملحمة كلاسيكية (4 عساكر)' : '🛡️ Full Battle (4 tokens)')}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{lang === 'ar' ? 'شرط الانتصار:' : 'Victory Rule:'}</span>
-                      <span className="text-emerald-400 font-bold">
-                        {winRule === 'first'
-                          ? (lang === 'ar' ? 'أول عسكري يصل للمركز 🥇' : 'First token to finish 🥇')
-                          : (lang === 'ar' ? 'جميع العساكر في القلعة 🏆' : 'All tokens home 🏆')}
-                      </span>
-                    </div>
+                {/* Tokens Count */}
+                <div className="bg-slate-900/70 p-2 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 block">
+                    ♟️ {lang === 'ar' ? 'عدد العساكر:' : 'Tokens:'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPieceCount(2)}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        pieceCount === 2 ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {lang === 'ar' ? '2 عساكر (خاطفة)' : '2 Tokens'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPieceCount(4)}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        pieceCount === 4 ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {lang === 'ar' ? '4 عساكر (كلاسيك)' : '4 Tokens'}
+                    </button>
                   </div>
                 </div>
 
-                <div className="pt-1.5 text-[10px] sm:text-[11px] text-slate-400 flex items-center justify-center gap-1 border-t border-slate-800/80">
-                  <span>💡</span>
-                  <span>{lang === 'ar' ? 'استخدم النرد والدفاع عن ممرك وتدمير خصومك!' : 'Defend your path and strike down opponents!'}</span>
+                {/* Win Rule */}
+                <div className="bg-slate-900/70 p-2 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 block">
+                    🏆 {lang === 'ar' ? 'شرط الفوز:' : 'Win Rule:'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setWinRule('first')}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        winRule === 'first' ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {lang === 'ar' ? 'أول عسكري ⚡' : 'First token'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWinRule('all')}
+                      className={`py-1 rounded-lg border text-[10px] font-black transition-all cursor-pointer ${
+                        winRule === 'all' ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {lang === 'ar' ? 'جميع العساكر 🏁' : 'All tokens'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Stake Amount */}
+                <div className="bg-slate-900/70 p-2 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 block">
+                    💰 {lang === 'ar' ? 'الرهان بالذهب:' : 'Entry Stake:'}
+                  </span>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[50, 100, 500, 1000].map((fee) => (
+                      <button
+                        key={fee}
+                        type="button"
+                        onClick={() => setRoomStake(fee)}
+                        className={`py-1 rounded-lg border text-[9px] font-black transition-all cursor-pointer ${
+                          roomStake === fee ? 'bg-amber-500/25 border-amber-400 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {fee} 🪙
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
+              {/* ACTION BUTTONS (NO SUMMARY BOX! FULLY VISIBLE IN ONE SCREEN!) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserRole('player');
+                    startGame();
+                  }}
+                  className="w-full py-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.5)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>⚔️</span>
+                  <span>{lang === 'ar' ? 'إنشاء وبدء كلاعب أساسي' : 'Create & Play as Player'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserRole('spectator');
+                    startGame();
+                  }}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-400/50"
+                >
+                  <span>🎙️</span>
+                  <span>{lang === 'ar' ? 'إنشاء والدخول كمتفرج بالمايك' : 'Create & Join as Spectator'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
+        /* Active Game Board - Yalla Ludo Authentic Style */
+        <div
+          className="flex-1 w-full flex flex-col justify-between items-center relative overflow-y-auto overflow-x-hidden p-1.5 sm:p-2.5"
+          style={{
+            backgroundColor: '#0a3526',
+            backgroundImage: `
+              linear-gradient(135deg, rgba(255,255,255,0.035) 25%, transparent 25%),
+              linear-gradient(225deg, rgba(255,255,255,0.035) 25%, transparent 25%),
+              linear-gradient(45deg, rgba(255,255,255,0.035) 25%, transparent 25%),
+              linear-gradient(315deg, rgba(255,255,255,0.035) 25%, transparent 25%)
+            `,
+            backgroundPosition: '20px 0, 20px 0, 0 0, 0 0',
+            backgroundSize: '40px 40px',
+            backgroundRepeat: 'repeat'
+          }}
+        >
+          {/* 1. TOP BAR: Power, Trophy, Spectator Seats & User Profile Chip (Exact Match to Image 1) */}
+          <div className="w-full max-w-lg flex flex-col gap-1.5 z-20 shrink-0">
+            {/* Header: Exit, Trophy, Spectator Seats, Profile */}
+            <div className="w-full flex items-center justify-between gap-1.5">
+              {/* Left Controls: Power & Trophy */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={resetGame}
+                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-slate-700/80 hover:bg-rose-950/80 hover:border-rose-600 flex items-center justify-center text-xs text-rose-300 transition-colors shadow cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'خروج / إعادة ضبط' : 'Exit / Reset'}
+                >
+                  ⏻
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowH2HModal(true)}
+                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-amber-500/50 hover:bg-amber-500/20 flex items-center justify-center text-sm shadow cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'سجل المواجهات والبطولات' : 'H2H & Leaderboard'}
+                >
+                  🏆
+                </button>
+              </div>
+
+              {/* Spectator / Voice Seats Bar (المقاعد للاعبين والمتفرجين) */}
+              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-1.5 bg-black/30 rounded-full border border-white/10 backdrop-blur-sm">
+                {/* Level / Room Rank Badge */}
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-950/90 border border-emerald-400/60 flex items-center justify-center text-[9px] font-black text-amber-300 shadow shrink-0">
+                  ⭐ 2
+                </div>
+
+                {/* User Spectator Seat (when entering as spectator) */}
+                {userRole === 'spectator' && (
+                  <div
+                    className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-emerald-400 p-0.5 shadow-[0_0_10px_rgba(16,185,129,0.8)] shrink-0 bg-slate-900 ring-2 ring-emerald-400/50"
+                    title={`${userProfile?.username || 'Ali'} (أنت على المايك)`}
+                  >
+                    {userProfile?.avatar_url ? (
+                      <img src={userProfile.avatar_url} alt="You" className="w-full h-full object-cover rounded-full" />
+                    ) : (
+                      <div className="w-full h-full rounded-full bg-emerald-600 flex items-center justify-center text-[10px]">
+                        🎙️
+                      </div>
+                    )}
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border border-white text-[7px] flex items-center justify-center animate-pulse">
+                      🎙️
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty Seats with + */}
+                {[1, 2].map(seatIdx => (
+                  <button
+                    key={`seat-${seatIdx}`}
+                    type="button"
+                    onClick={() => {
+                      setStatusMessage(lang === 'ar' ? '🎤 المقعد الصوتي متاح، تم حجز دورك!' : '🎤 Voice seat available!');
+                      addChatMessage(lang === 'ar' ? '🎤 انضممت إلى المقعد الصوتي للمتفرجين.' : 'Joined voice seat.', 'system');
+                    }}
+                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white/10 border border-white/20 hover:border-amber-400 hover:bg-amber-400/20 flex items-center justify-center text-[10px] text-slate-300 transition-all shadow shrink-0 cursor-pointer active:scale-90"
+                    title={lang === 'ar' ? 'انضم للمقعد الصوتي' : 'Join Voice Seat'}
+                  >
+                    +
+                  </button>
+                ))}
+
+                {/* Seated Spectator 1: Al-Sahir */}
+                <div
+                  onClick={() => setSelectedGiftTarget('red')}
+                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer"
+                  title="الساحر (انقر لإرسال هدية)"
+                >
+                  <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
+                  <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-rose-600 border border-white text-[7px] flex items-center justify-center">
+                    🎙️
+                  </div>
+                </div>
+
+                {/* Seated Spectator 2: Mahmoud */}
+                <div
+                  onClick={() => setSelectedGiftTarget('yellow')}
+                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer"
+                  title="محمود (انقر لإرسال هدية)"
+                >
+                  <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
+                  <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-600 border border-white text-[7px] flex items-center justify-center">
+                    🎙️
+                  </div>
+                </div>
+
+                {/* Locked VIP Seat */}
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 border border-slate-700/60 flex items-center justify-center text-[10px] text-slate-500 shadow shrink-0">
+                  🔒
+                </div>
+              </div>
+
+              {/* Right: User Profile Chip (Egypt Flag + Ali + ID - Exact Match to Image 1) */}
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900/90 border border-slate-700 shadow shrink-0">
+                <div className="w-6 h-6 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-[10px]">
+                  <span>👑</span>
+                  {userProfile?.avatar_url && (
+                    <img
+                      src={userProfile.avatar_url}
+                      alt="User"
+                      className="absolute inset-0 w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="text-right leading-none">
+                  <span className="text-[10px] font-black text-amber-300 flex items-center gap-0.5">
+                    <span>{userProfile?.username || 'Ali'}</span>
+                    <span>🇪🇬</span>
+                  </span>
+                  <span className="text-[8px] text-slate-400 font-sans block mt-0.5">
+                    {userProfile?.id ? `${String(userProfile.id).slice(0, 7)} ID` : '12842582 ID'}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* 6. Start Button (Heroic & Full-width) */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                startGame();
-              }}
-              className="w-full py-3 sm:py-3.5 lg:py-4 bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 hover:from-amber-500 hover:to-yellow-400 text-slate-950 font-black text-sm sm:text-base lg:text-lg rounded-xl sm:rounded-2xl shadow-[0_0_35px_rgba(245,158,11,0.5)] hover:shadow-[0_0_50px_rgba(245,158,11,0.8)] active:scale-98 transition-all cursor-pointer touch-manipulation select-none flex items-center justify-center gap-2.5 tracking-wide"
-            >
-              <span className="text-base sm:text-lg lg:text-xl pointer-events-none select-none">⚔️</span>
-              <span className="pointer-events-none select-none">{lang === 'ar' ? 'ابدأ معركة اللودو الآن' : 'Start Ludo Battle Now'}</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* Active Game Board */
-        <div className="flex-1 p-2 lg:p-4 flex flex-col items-center justify-between relative overflow-y-auto">
-
-          {/* Persistent Head-to-Head Top-Center Banner */}
-          <div className="w-full flex items-center justify-center mb-2 z-20">
-            <div className="flex items-center gap-2 sm:gap-4 px-3 sm:px-5 py-1.5 bg-slate-950/90 border border-amber-500/40 rounded-2xl shadow-xl backdrop-blur-md text-[11px] sm:text-xs">
-              <span className="text-amber-400 font-black">⚔️ {lang === 'ar' ? 'سجل المواجهات التاريخي:' : 'Head-to-Head:'}</span>
-              <div className="flex items-center gap-2 font-black">
-                <span className="text-cyan-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block shadow-[0_0_6px_#22d3ee]"></span>
-                  {lang === 'ar' ? 'أنت' : 'You'} ({h2hRecord.playerWins})
-                </span>
-                <span className="text-slate-500 font-extrabold">vs</span>
-                <span className="text-rose-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-rose-400 inline-block shadow-[0_0_6px_#fb7185]"></span>
-                  {lang === 'ar' ? 'الخصوم' : 'Opponents'} ({h2hRecord.opponentWins})
-                </span>
-              </div>
-              <span className="text-slate-400 text-[10px] hidden sm:inline">
-                ({h2hRecord.totalMatches} {lang === 'ar' ? 'مباراة' : 'matches'})
-              </span>
+            {/* Sub-bar: Coin chest chip, Turn / Status badge, Settings gear */}
+            <div className="w-full flex items-center justify-between px-1">
+              {/* Coin Chest Button */}
               <button
                 type="button"
-                onClick={() => setShowH2HModal(true)}
-                className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg text-[10px] font-black border border-amber-500/40 cursor-pointer active:scale-95 transition-all"
+                onClick={() => {
+                  setPlayerCoins(prev => {
+                    const next = prev + 50;
+                    try { localStorage.setItem('ludo_coins_balance', next.toString()); } catch (e) {}
+                    return next;
+                  });
+                  playCoinChime();
+                  setStatusMessage(lang === 'ar' ? '🎁 تم جمع مكافأة الصندوق اليومي (+50 🪙)!' : '🎁 Collected daily bonus (+50 🪙)!');
+                }}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black shadow cursor-pointer active:scale-95 transition-all"
+                title={lang === 'ar' ? 'صندوق المكافآت الذهبية' : 'Coins Chest'}
               >
-                📊 {lang === 'ar' ? 'سجل المباريات' : 'Match Log'}
+                <span>🎁</span>
+                <span>{playerCoins}</span>
+                <span>🪙</span>
+              </button>
+
+              {/* Turn / Game Status Badge */}
+              <div className="px-3 py-0.5 rounded-full bg-black/60 border border-amber-400/40 text-[10px] sm:text-xs font-black text-amber-300 shadow backdrop-blur-sm truncate max-w-[220px]">
+                {statusMessage}
+              </div>
+
+              {/* Settings Gear */}
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(true)}
+                className="w-7 h-7 rounded-full bg-slate-900/80 border border-slate-700/80 hover:border-amber-400 flex items-center justify-center text-xs text-slate-300 transition-colors shadow cursor-pointer active:scale-90"
+                title={lang === 'ar' ? 'إعدادات الجولة' : 'Settings'}
+              >
+                ⚙️
               </button>
             </div>
           </div>
 
-          {/* Main Play Arena: Responsive 3-row on Mobile, 3-column on Desktop */}
-          <div dir="ltr" className="w-full max-w-5xl flex flex-col lg:flex-row items-center justify-center lg:gap-6 my-auto">
-            {/* Mobile/Tablet Top Row: Green (Left) & Yellow (Right) */}
-            <div dir="ltr" className="flex lg:hidden w-full max-w-[min(94vw,480px)] items-center justify-between gap-2 px-1 mb-1">
-              {playerConfig.green !== 'none' ? renderPlayerCard('green', 'mobile') : <div className="flex-1" />}
-              {playerConfig.yellow !== 'none' ? renderPlayerCard('yellow', 'mobile') : <div className="flex-1" />}
-            </div>
-
-            {/* Desktop Left Column: Green & Red */}
-            <div className="hidden lg:flex flex-col justify-between h-[500px] py-2 w-[140px] shrink-0">
-              {playerConfig.green !== 'none' ? renderPlayerCard('green', 'desktop') : <div />}
-              {playerConfig.red !== 'none' ? renderPlayerCard('red', 'desktop') : <div />}
-            </div>
-
-            {/* Center: Ludo Board Container - COMPLETELY UNOBSTRUCTED! */}
-            <div
-              dir="ltr"
-              className="relative z-10 w-full max-w-[min(94vw,460px,52vh)] lg:max-w-[500px] aspect-square rounded-2xl shadow-[0_0_60px_rgba(0,0,0,0.8)] border-2 border-slate-800 shrink-0"
-            >
-              {playerConfig.blue !== 'none' && renderEmoteSelector()}
-
-              <div
-                className="w-full h-full grid rounded-2xl overflow-hidden shadow-[inset_0_0_50px_rgba(0,0,0,0.5)] border border-slate-700/50"
-                style={{
-                  gridTemplateColumns: 'repeat(15, 1fr)',
-                  gridTemplateRows: 'repeat(15, 1fr)',
-                  backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center'
-                }}
-              >
-                {renderBoard()}
+          {/* 2. CENTER LUDO BOARD: Large, Responsive, Unsquashed (Profiles inside the corner bases!) */}
+          <div
+            dir="ltr"
+            className="w-full max-w-[min(96vw,450px)] aspect-square rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.85)] border-2 border-emerald-800/80 my-auto relative shrink-0 z-10"
+          >
+            {/* Quick Floating Emotes Popup */}
+            {showEmotesBar && (
+              <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/95 border border-amber-400/60 px-3 py-1.5 rounded-full shadow-2xl z-50 backdrop-blur-md animate-fadeIn">
+                {['🧙‍♂️', '🤖', '🏹', '😂', '🔥', '👏', '👑'].map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      addChatMessage(`${userProfile?.username || 'Ali'}: ${emoji}`, 'chat', userProfile?.username || 'Ali');
+                      setShowEmotesBar(false);
+                      playGiftSound('chime');
+                    }}
+                    className="text-lg hover:scale-125 transition-transform active:scale-90 cursor-pointer"
+                  >
+                    {emoji}
+                  </button>
+                ))}
               </div>
-            </div>
+            )}
 
-            {/* Desktop Right Column: Yellow & Blue */}
-            <div className="hidden lg:flex flex-col justify-between h-[500px] py-2 w-[140px] shrink-0">
-              {playerConfig.yellow !== 'none' ? renderPlayerCard('yellow', 'desktop') : <div />}
-              {playerConfig.blue !== 'none' ? renderPlayerCard('blue', 'desktop') : <div />}
-            </div>
-
-            {/* Mobile/Tablet Bottom Row: Red (Left) & Blue (Right) */}
-            <div dir="ltr" className="flex lg:hidden w-full max-w-[min(94vw,480px)] items-center justify-between gap-2 px-1 mt-1">
-              {playerConfig.red !== 'none' ? renderPlayerCard('red', 'mobile') : <div className="flex-1" />}
-              {playerConfig.blue !== 'none' ? renderPlayerCard('blue', 'mobile') : <div className="flex-1" />}
+            <div
+              className="w-full h-full grid rounded-2xl overflow-hidden shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] border border-slate-700/60 bg-white"
+              style={{
+                gridTemplateColumns: 'repeat(15, 1fr)',
+                gridTemplateRows: 'repeat(15, 1fr)',
+                backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
+              }}
+            >
+              {renderBoard()}
             </div>
           </div>
 
-          {/* Status Message Footer */}
-          <div className="px-5 py-2 bg-slate-950/90 rounded-full border border-slate-800/60 text-xs sm:text-sm font-bold text-amber-400 font-sans shadow-xl mt-3 relative z-10 text-center max-w-lg">
-            {statusMessage}
+          {/* 3. LIVE CHAT TICKER & ROOM BANNER (Exact Match to Image 1) */}
+          <div className="w-full max-w-lg flex flex-col gap-1.5 z-20 shrink-0 mt-1">
+            {/* Chat Tabs & Live Ticker */}
+            <div className="w-full bg-black/40 border border-white/10 rounded-2xl p-2 backdrop-blur-md flex flex-col gap-1">
+              {/* Category Pills: جميع, هدية, خبر */}
+              <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                <div className="flex items-center gap-2 text-[10px] font-black">
+                  {[
+                    { id: 'all', labelAr: 'جميع', labelEn: 'All' },
+                    { id: 'gift', labelAr: 'هدية', labelEn: 'Gifts' },
+                    { id: 'news', labelAr: 'خبر', labelEn: 'News' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setChatTab(tab.id as any)}
+                      className={`px-2 py-0.5 rounded-full transition-all cursor-pointer ${
+                        chatTab === tab.id
+                          ? 'bg-amber-400 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {lang === 'ar' ? tab.labelAr : tab.labelEn}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[9px] text-slate-400">
+                  {lang === 'ar' ? 'غرفة #4082' : 'Room #4082'}
+                </span>
+              </div>
+
+              {/* Ticker Feed Messages */}
+              <div className="h-10 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
+                {chatMessages
+                  .filter(m => chatTab === 'all' || m.type === chatTab)
+                  .slice(0, 3)
+                  .map(msg => (
+                    <div key={msg.id} className="flex items-center gap-1.5 text-slate-200 truncate">
+                      {msg.user && (
+                        <span className="text-amber-400 font-bold shrink-0">
+                          @{msg.user}:
+                        </span>
+                      )}
+                      <span className="truncate">{msg.text}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* VIP Room Membership Banner (Matching Image 1) */}
+            <div className="w-full px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-900/80 via-teal-900/80 to-cyan-900/80 border border-emerald-400/40 flex items-center justify-between shadow-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setPlayerCoins(prev => prev + 20);
+                  setStatusMessage(lang === 'ar' ? '✨ انضممت إلى الغرفة وحصلت على مكافأة العضوية!' : 'Joined room!');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] shadow active:scale-95 transition-all cursor-pointer"
+              >
+                {lang === 'ar' ? 'الانضمام إلى الغرفة' : 'Join Room'}
+              </button>
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-emerald-200 block">
+                  {lang === 'ar' ? 'كن عضوا في الغرفة وتفاعل معا ~' : 'Be a room member and interact ~'}
+                </span>
+              </div>
+            </div>
+
+            {/* 4. BOTTOM ACTION TOOLBAR (Gift, Menu, Mail, Mic, Smileys, Chat Input - Matching Image 1) */}
+            <div className="w-full flex items-center justify-between gap-1.5 px-1 py-1">
+              {/* Gift Modal Trigger 🎁 */}
+              <button
+                type="button"
+                onClick={() => setSelectedGiftTarget('red')}
+                className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-lg shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer border border-amber-300"
+                title={lang === 'ar' ? 'صندوق الهدايا والمقالب 🎁' : 'Gift Box 🎁'}
+              >
+                🎁
+              </button>
+
+              {/* Grid Menu Button 🪟 */}
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(true)}
+                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-all cursor-pointer"
+                title={lang === 'ar' ? 'القائمة' : 'Menu'}
+              >
+                🪟
+              </button>
+
+              {/* Mail / Notifications Button ✉️ */}
+              <button
+                type="button"
+                onClick={() => setShowH2HModal(true)}
+                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-all cursor-pointer"
+                title={lang === 'ar' ? 'سجل المواجهات' : 'History'}
+              >
+                ✉️
+              </button>
+
+              {/* Mic Toggle Button 🎙️ */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMicMuted(prev => !prev);
+                  setStatusMessage(!isMicMuted ? (lang === 'ar' ? '🔇 تم كتم المايك' : 'Mic muted') : (lang === 'ar' ? '🎙️ تم تشغيل المايك' : 'Mic unmuted'));
+                }}
+                className={`w-9 h-9 rounded-full border text-sm flex items-center justify-center shadow active:scale-95 transition-all cursor-pointer ${
+                  isMicMuted
+                    ? 'bg-rose-950/80 border-rose-600 text-rose-300'
+                    : 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                }`}
+                title={isMicMuted ? 'تفعيل المايك' : 'كتم المايك'}
+              >
+                {isMicMuted ? '🔇' : '🎙️'}
+              </button>
+
+              {/* Smileys / Emotes Picker Button 😄 */}
+              <button
+                type="button"
+                onClick={() => setShowEmotesBar(prev => !prev)}
+                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-lg shadow hover:text-white active:scale-95 transition-all cursor-pointer"
+                title={lang === 'ar' ? 'تفاعلات وإيموجي' : 'Emotes'}
+              >
+                😄
+              </button>
+
+              {/* Quick Chat Input / Modal Trigger 💬 */}
+              <button
+                type="button"
+                onClick={() => setShowQuickChat(true)}
+                className="flex-1 h-9 px-3 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-400 hover:text-white text-xs flex items-center justify-between shadow active:scale-98 transition-all cursor-pointer"
+              >
+                <span>{lang === 'ar' ? 'دردشة سريعة...' : 'Quick Chat...'}</span>
+                <span>💬</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3419,6 +3859,144 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl border border-slate-800 transition-colors cursor-pointer"
                 >
                   {lang === 'ar' ? 'العودة للرئيسية 🚪' : 'Exit to Hub 🚪'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 💬 QUICK CHAT MODAL */}
+      {showQuickChat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-950 border border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-sm font-black text-amber-300">💬 {lang === 'ar' ? 'الدردشة والتعليقات السريعة' : 'Quick Chat'}</span>
+              <button
+                type="button"
+                onClick={() => setShowQuickChat(false)}
+                className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Phrases */}
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                'لعبة ممتعة يا أبطال! 🔥',
+                'عاش يا وحش! 👏',
+                'ركز معايا بقى! 🎯',
+                'حظ أوفر يا صديقي! 🤝',
+                'يلا العب سريع ⚡',
+                'كفو والله! 👑',
+              ].map((phrase, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    addChatMessage(phrase, 'chat', userProfile?.username || 'Ali');
+                    setShowQuickChat(false);
+                    playGiftSound('chime');
+                  }}
+                  className="p-2 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-800 hover:border-amber-400/50 text-[11px] text-slate-200 font-bold text-center active:scale-95 transition-all cursor-pointer"
+                >
+                  {phrase}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Input */}
+            <div className="flex items-center gap-1.5 pt-1">
+              <input
+                type="text"
+                value={quickInputText}
+                onChange={(e) => setQuickInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && quickInputText.trim()) {
+                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali');
+                    setQuickInputText('');
+                    setShowQuickChat(false);
+                  }
+                }}
+                placeholder={lang === 'ar' ? 'اكتب رسالة للغرفة...' : 'Type message...'}
+                className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (quickInputText.trim()) {
+                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali');
+                    setQuickInputText('');
+                    setShowQuickChat(false);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs active:scale-95 transition-all cursor-pointer"
+              >
+                {lang === 'ar' ? 'إرسال' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚙️ SETTINGS MODAL */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-950 border border-slate-700 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-sm font-black text-slate-200">⚙️ {lang === 'ar' ? 'إعدادات اللعبة' : 'Game Settings'}</span>
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              {/* Sound Toggle */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'المؤثرات الصوتية:' : 'Sound Effects:'}</span>
+                <button
+                  type="button"
+                  onClick={() => setIsMuted(prev => !prev)}
+                  className={`px-3 py-1 rounded-lg text-xs font-black transition-colors ${
+                    isMuted ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                  }`}
+                >
+                  {isMuted ? '🔇 مكتوم' : '🔊 شغال'}
+                </button>
+              </div>
+
+              {/* Intro Replay */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'الدخلة السينمائية:' : 'Intro Scene:'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setShowCinematicIntro(true);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black"
+                >
+                  🎬 مشاهدة
+                </button>
+              </div>
+
+              {/* Reset Game */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'إعادة ضبط المعركة:' : 'Reset Match:'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    resetGame();
+                  }}
+                  className="px-3 py-1 rounded-lg bg-rose-950 text-rose-300 border border-rose-800 text-xs font-black"
+                >
+                  🔄 إعادة
                 </button>
               </div>
             </div>

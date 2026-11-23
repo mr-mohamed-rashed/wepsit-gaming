@@ -198,7 +198,7 @@ export default function StakeSelectorModal({
                 <div className="relative w-28 h-28 flex items-center justify-center">
                   <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
                   <div className="absolute w-20 h-20 rounded-full border-2 border-indigo-400/40 animate-ping"></div>
-                  <span className="text-3xl animate-bounce">🎱</span>
+                  <span className="text-3xl animate-bounce">{isBilliards ? '🎱' : '🎯'}</span>
                 </div>
                 <div className="text-center space-y-2">
                   <h3 className="text-lg font-bold text-white">جاري البحث عن منافس متكافئ...</h3>

@@ -8,6 +8,7 @@ import CoinCounter from './CoinCounter';
 import DailyQuests from './DailyQuests';
 import InteractionPanel from './InteractionPanel';
 import StakeSelectorModal, { GameTableOption, GHOST_BOTS } from './StakeSelectorModal';
+import LudoRoomModal, { LudoRoomConfig } from './LudoRoomModal';
 import { GAMES_CONFIG } from '@/config/gamesConfig';
 
 interface DashboardProps {
@@ -50,6 +51,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   const [activeGame, setActiveGame] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('domino');
   const [showGameModal, setShowGameModal] = useState(false);
   const [showStakeModal, setShowStakeModal] = useState(false);
+  const [showLudoRoomModal, setShowLudoRoomModal] = useState(false);
+  const [ludoRoomConfig, setLudoRoomConfig] = useState<LudoRoomConfig | null>(null);
   const [pendingGameTitle, setPendingGameTitle] = useState('');
   const [pendingGameMode, setPendingGameMode] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('ludo');
   const [selectedStakeConfig, setSelectedStakeConfig] = useState<{
@@ -58,6 +61,91 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     playerCount: number;
     opponent: typeof GHOST_BOTS[0];
   } | null>(null);
+
+  // --- PWA INSTALL & SESSION PERSISTENCE ---
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  // Close Game helper that clears active game from localStorage
+  const handleCloseGame = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('active_game_session');
+    }
+    setShowGameModal(false);
+  };
+
+  // Restore active game session if page was refreshed or phone tab reloaded
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedSession = localStorage.getItem('active_game_session');
+        if (savedSession) {
+          const parsed = JSON.parse(savedSession);
+          if (parsed && parsed.game && (Date.now() - (parsed.timestamp || 0) < 3 * 60 * 60 * 1000)) {
+            setActiveGame(parsed.game);
+            if (parsed.stakeConfig) {
+              setSelectedStakeConfig(parsed.stakeConfig);
+            }
+            if (parsed.ludoConfig) {
+              setLudoRoomConfig(parsed.ludoConfig);
+            }
+            setShowGameModal(true);
+          } else {
+            localStorage.removeItem('active_game_session');
+          }
+        }
+      } catch (err) {
+        console.error('Error restoring game session:', err);
+      }
+    }
+  }, []);
+
+  // Prevent accidental page reload or back gesture when inside active game
+  useEffect(() => {
+    if (!showGameModal) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [showGameModal]);
+
+  // Handle PWA BeforeInstallPrompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    if (typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstallable(false);
+    }
+
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) {
+      addToast(
+        lang === 'ar'
+          ? 'لتثبيت التطبيق على الهاتف: اضغط على خيارات المتصفح (⋮) ثم اختر "إضافة إلى الشاشة الرئيسية" 📲'
+          : 'To install: Open browser menu (⋮) and tap "Add to Home Screen" 📲',
+        'warning'
+      );
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      addToast(lang === 'ar' ? '🎉 تم تثبيت التطبيق بنجاح على هاتفك!' : '🎉 App installed successfully!', 'success');
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   // --- XP & LEVEL SYSTEM STATE ---
   const [gameXp, setGameXp] = useState<Record<string, number>>({
@@ -88,7 +176,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     const handleGameMessage = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'CLOSE_GAME') {
-        setShowGameModal(false);
+        handleCloseGame();
       } else if (event.data.type === 'LUDO_GAME_OVER' || event.data.type === 'GAME_OVER') {
         if (event.data.isHuman && event.data.coins > 0) {
           const updatedCoins = profile.gold_coins + event.data.coins;
@@ -389,6 +477,11 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   };
 
   const launchGameMode = (gameId: string) => {
+    if (gameId === 'ludo-game') {
+      setShowLudoRoomModal(true);
+      return;
+    }
+
     let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'chess';
     if (gameId === 'billiards-game') resolvedMode = 'billiards';
     else if (gameId === 'domino-game') resolvedMode = 'domino';
@@ -397,12 +490,25 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     else if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
     else if (gameId === 'backgammon-game') resolvedMode = 'backgammon';
     else if (gameId === 'fighter-game') resolvedMode = 'fighter';
-    else if (gameId === 'ludo-game') resolvedMode = 'ludo';
 
     const matched = GAMES_CONFIG.find((g) => g.id === gameId);
     setPendingGameTitle(lang === 'ar' ? (matched?.titleAr || 'طاولة الرهان') : (matched?.titleEn || 'Stake Table'));
     setPendingGameMode(resolvedMode);
     setShowStakeModal(true);
+  };
+
+  const handleStartLudo = (config: LudoRoomConfig) => {
+    setLudoRoomConfig(config);
+    setShowLudoRoomModal(false);
+    setActiveGame('ludo');
+    setShowGameModal(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('active_game_session', JSON.stringify({
+        game: 'ludo',
+        ludoConfig: config,
+        timestamp: Date.now(),
+      }));
+    }
   };
 
   const handleStartGameFromStakeModal = (config: {
@@ -415,6 +521,13 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     setShowStakeModal(false);
     setActiveGame(pendingGameMode);
     setShowGameModal(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('active_game_session', JSON.stringify({
+        game: pendingGameMode,
+        stakeConfig: config,
+        timestamp: Date.now(),
+      }));
+    }
   };
 
   // Create Game Session manually
@@ -679,7 +792,16 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             </span>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
+            <button
+              onClick={handleInstallApp}
+              className="text-xs font-bold text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)] cursor-pointer"
+              title={lang === 'ar' ? 'تثبيت المنصة كتطبيق على هاتفك' : 'Install App'}
+            >
+              <span>📲</span>
+              <span className="hidden sm:inline">{lang === 'ar' ? 'تثبيت التطبيق' : 'Install App'}</span>
+            </button>
+
             <CoinCounter coins={profile.gold_coins} />
 
             <button
@@ -1171,8 +1293,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
 
       {/* Game Modal Popup Overlay */}
       {showGameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md">
-          <div className="w-full h-full flex flex-col overflow-hidden relative shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md no-pull-refresh overscroll-none select-none">
+          <div className="w-full h-full flex flex-col overflow-hidden relative shadow-2xl no-pull-refresh overscroll-none">
 
             {/* Dynamic Blurred Game Card Background */}
             <div
@@ -1192,7 +1314,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                 {activeGame === 'billiards' ? (lang === 'ar' ? '🎱 كيو ماستر (Cue Master) بلياردو & سنوكر' : '🎱 Cue Master Pool & Snooker') : activeGame === 'chess' ? t.chessTitle : activeGame === 'ludo' ? (lang === 'ar' ? '🎲 لودو الممالك الأسطورية' : 'Ludo: Mythical Kingdoms') : (activeGame === 'estimation' ? t.estimationTitle : (activeGame === 'uno' ? t.unoTitle : (activeGame === 'cyber-arena' ? t.cyberTitle : (activeGame === 'backgammon' ? (lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon') : t.dominoTitle))))}
               </h3>
               <button
-                onClick={() => setShowGameModal(false)}
+                onClick={handleCloseGame}
                 className="text-slate-400 hover:text-white transition-colors cursor-pointer text-[10px] font-bold bg-slate-800/40 hover:bg-rose-950/50 px-3 py-1 rounded-lg border border-slate-700/50 hover:border-rose-700/50"
               >
                 ❌ {lang === 'ar' ? 'إغلاق اللعبة' : 'Close Game'}
@@ -1200,11 +1322,20 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             </div>
 
             {/* Modal body */}
-            <div className="flex-1 flex flex-col md:flex-row p-2 gap-4 overflow-hidden bg-transparent">
-              <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full">
+            <div className="flex-1 flex flex-col md:flex-row p-2 gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none">
+              <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full no-pull-refresh overscroll-none">
                 <iframe
                   src={
                     (() => {
+                      if (activeGame === 'ludo') {
+                        const role = ludoRoomConfig?.role || 'player';
+                        const players = ludoRoomConfig?.playerCount || 4;
+                        const pieces = ludoRoomConfig?.pieceCount || 4;
+                        const winRule = ludoRoomConfig?.winRule || 'all';
+                        const stake = ludoRoomConfig?.entryFee || 50;
+                        const roomName = encodeURIComponent(ludoRoomConfig?.roomName || 'Ludo Room');
+                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomName=${roomName}`;
+                      }
                       const matched = GAMES_CONFIG.find(g => g.key === activeGame);
                       const base = matched?.embedUrl || `/games/${activeGame}`;
                       const sep = base.includes('?') ? '&' : '?';
@@ -1219,16 +1350,18 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                 />
               </div>
 
-              {/* Sidebar Panel - Collapsed/hidden on small mobile to give full screen to game */}
-              <div className="hidden md:block md:w-[350px] shrink-0 h-full overflow-y-auto z-20">
-                <InteractionPanel profile={profile} onUpdate={onUpdate} addToast={addToast} lang={lang} activeGame={activeGame} />
-              </div>
+              {/* Sidebar Panel - Hidden for Ludo because Ludo has its own embedded spectator bar, chat & gifts */}
+              {activeGame !== 'ludo' && (
+                <div className="hidden md:block md:w-[350px] shrink-0 h-full overflow-y-auto z-20">
+                  <InteractionPanel profile={profile} onUpdate={onUpdate} addToast={addToast} lang={lang} activeGame={activeGame} />
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Stake & Table Selector Modal */}
+      {/* Stake & Table Selector Modal (Billiards & General Stakes) */}
       {showStakeModal && (
         <StakeSelectorModal
           gameTitle={pendingGameTitle}
@@ -1237,6 +1370,17 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
           onClose={() => setShowStakeModal(false)}
           onStartGame={handleStartGameFromStakeModal}
           addToast={addToast}
+        />
+      )}
+
+      {/* Ludo Dedicated Room & Spectator System Modal */}
+      {showLudoRoomModal && (
+        <LudoRoomModal
+          profile={profile}
+          onClose={() => setShowLudoRoomModal(false)}
+          onStartLudo={handleStartLudo}
+          addToast={addToast}
+          lang={lang}
         />
       )}
     </div>

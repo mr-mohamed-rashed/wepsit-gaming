@@ -1,5 +1,5 @@
 import { getProfile, getDailyQuest, updateProfile, updateDailyQuest } from '@/lib/supabaseServer';
-import { Profile, DailyQuest } from '@/lib/supabase';
+import { Profile, DailyQuest, isRealSupabaseConfigured, supabaseAdmin, supabaseClient } from '@/lib/supabase';
 import { ActionResponse } from './gameActions';
 
 /**
@@ -9,6 +9,37 @@ import { ActionResponse } from './gameActions';
  */
 export async function claimDailyLogin(userId: string): Promise<ActionResponse> {
   try {
+    const client = supabaseAdmin || supabaseClient;
+
+    // 1. Try secure Postgres RPC function first (handles atomic update and bypasses RLS securely)
+    if (isRealSupabaseConfigured && client) {
+      try {
+        const { data: rpcData, error: rpcError } = await client.rpc('claim_daily_bonus', {
+          p_user_id: userId,
+        });
+
+        if (!rpcError && rpcData) {
+          if (rpcData.success) {
+            const updatedProfile = await getProfile(userId);
+            return {
+              success: true,
+              message: rpcData.message || 'تم الحصول على مكافأة الدخول اليومي! حصلت على +50 عملة ذهبية! 🎉',
+              data: updatedProfile,
+            };
+          } else {
+            return {
+              success: false,
+              message: rpcData.message || 'المكافأة اليومية غير متاحة بعد.',
+            };
+          }
+        }
+      } catch (rpcErr) {
+        // Fallback to standard flow if RPC is not installed in database yet
+        console.warn('[claimDailyLogin] RPC fallback:', rpcErr);
+      }
+    }
+
+    // 2. Standard server-action flow
     const dailyQuest = await getDailyQuest(userId);
     const lastClaimDate = new Date(dailyQuest.last_login_claim);
     const now = new Date();
@@ -45,6 +76,7 @@ export async function claimDailyLogin(userId: string): Promise<ActionResponse> {
       data: updatedProfile,
     };
   } catch (err: any) {
+    console.error('[claimDailyLogin Error]:', err);
     return {
       success: false,
       message: err.message || 'حدث خطأ أثناء معالجة المطالبة بمكافأة الدخول.',
