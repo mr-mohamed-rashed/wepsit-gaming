@@ -294,6 +294,12 @@ function DominoGameContent() {
   const searchParams = useSearchParams();
   const lang = searchParams.get('lang') === 'en' ? 'en' : 'ar';
   const userId = searchParams.get('userId') || 'mock-user-developer-admin';
+  const role = searchParams.get('role') || 'player';
+  const isSpectator = role === 'spectator';
+  const roomName = searchParams.get('roomName') || (lang === 'ar' ? 'طاولة القهوة البلدي' : 'Domino Cafe Table');
+  const stake = parseInt(searchParams.get('stake') || '50', 10);
+  const autoStart = searchParams.get('autoStart') === 'true';
+  const playersParam = searchParams.get('players');
 
   // Game Mode: 'single' (2 players, 101 target) vs 'partnership' (4 players, 151 target)
   const [gameMode, setGameMode] = useState<'single' | 'partnership'>('single');
@@ -527,6 +533,57 @@ function DominoGameContent() {
       startDealing();
     }, 2500);
   };
+
+  // Auto-start from URL query parameters (Cafe Room Entry)
+  useEffect(() => {
+    if (playersParam === '4') {
+      setGameMode('partnership');
+    } else if (playersParam === '2') {
+      setGameMode('single');
+    }
+    if (autoStart && phase === 'init') {
+      const timer = setTimeout(() => {
+        startShuffle();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [autoStart, playersParam]);
+
+  // Spectator Autoplay: If user entered as spectator, automate Player 0 so match plays out smoothly
+  useEffect(() => {
+    if (!isSpectator || turn !== 0 || phase !== 'playing' || !players[0]) return;
+    const timer = setTimeout(() => {
+      const validTile = players[0].cards.find(
+        (tile) => boardTrain.length === 0 || tile.left === leftEnd || tile.right === leftEnd || tile.left === rightEnd || tile.right === rightEnd
+      );
+      if (validTile) {
+        if (boardTrain.length === 0) {
+          playTile(validTile, 'right');
+        } else if (validTile.left === rightEnd || validTile.right === rightEnd) {
+          playTile(validTile, 'right');
+        } else {
+          playTile(validTile, 'left');
+        }
+      } else {
+        if (gameMode === 'single' && boneyard.length > 0) {
+          synth.playDraw();
+          const nextBoneyard = [...boneyard];
+          const drawn = nextBoneyard.pop()!;
+          setBoneyard(nextBoneyard);
+          setPlayers((prev) => {
+            const next = [...prev];
+            next[0].cards = [...next[0].cards, drawn];
+            return next;
+          });
+          setTurn(0);
+        } else {
+          addChatMessage('you', players[0].name, lang === 'ar' ? 'مش معايا! عدي الدور.' : 'Pass turn.');
+          setTurn(1);
+        }
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [isSpectator, turn, phase, players, boardTrain, leftEnd, rightEnd, boneyard, gameMode]);
 
   const startNextRound = () => {
     synth.playShuffle();
@@ -1224,6 +1281,58 @@ function DominoGameContent() {
       {/* LEFT SIDE: Wooden Domino Table Felt */}
       <div className="flex-1 flex flex-col items-center justify-between p-2 relative border-r border-[#2d1405]">
         
+        {/* Top Cafe Lounge & Spectator Bar */}
+        <div className="w-full bg-slate-950/85 border border-amber-600/30 rounded-xl px-3 py-1.5 flex items-center justify-between z-20 mb-1 shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">☕</span>
+            <div>
+              <span className="text-xs font-black text-amber-300 block">{roomName}</span>
+              <span className="text-[10px] text-slate-400">
+                {lang === 'ar' ? `رهان: ${stake} 🪙 • ${gameMode === 'partnership' ? 'شراكة 151' : 'فردي 101'}` : `Stake: ${stake} 🪙`}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className={`px-2.5 py-0.5 rounded-full border text-[11px] font-bold flex items-center gap-1.5 ${
+              isSpectator
+                ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+            }`}>
+              <span>{isSpectator ? '🎙️' : '⚔️'}</span>
+              <span>{isSpectator ? (lang === 'ar' ? 'مقاعد المتفرجين الصوتية' : 'Voice Spectator') : (lang === 'ar' ? 'أنت على الطاولة' : 'Playing')}</span>
+            </div>
+
+            {/* Quick Cafe Cheers */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => addChatMessage(isSpectator ? 'dealer' : 'you', isSpectator ? 'متفرج بالقهوة 🎙️' : 'أنت', '☕ قهوة تركي مظبوط على حسابي يا معلمين!')}
+                className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs cursor-pointer"
+                title="طلب قهوة"
+              >
+                ☕
+              </button>
+              <button
+                type="button"
+                onClick={() => addChatMessage(isSpectator ? 'dealer' : 'you', isSpectator ? 'متفرج بالقهوة 🎙️' : 'أنت', '🍵 شاي بالنعناع للتربيزة هنا!')}
+                className="px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 rounded-lg text-xs cursor-pointer"
+                title="طلب شاي"
+              >
+                🍵
+              </button>
+              <button
+                type="button"
+                onClick={() => addChatMessage(isSpectator ? 'dealer' : 'you', isSpectator ? 'متفرج بالقهوة 🎙️' : 'أنت', '👏 عاش يا وحش! رمية معلم!')}
+                className="px-2 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 rounded-lg text-xs cursor-pointer"
+                title="تشجيع"
+              >
+                👏
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Header with tournament cumulative scores */}
         <header className="py-1.5 border-b border-amber-900/30 w-full z-10 bg-slate-950/40 rounded-xl px-4 flex justify-between items-center">
           <div className="text-right">

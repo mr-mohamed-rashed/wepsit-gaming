@@ -9,6 +9,7 @@ import DailyQuests from './DailyQuests';
 import InteractionPanel from './InteractionPanel';
 import StakeSelectorModal, { GameTableOption, GHOST_BOTS } from './StakeSelectorModal';
 import LudoRoomModal, { LudoRoomConfig } from './LudoRoomModal';
+import CafeRoomModal, { CafeGameKey, CafeRoomConfig } from './CafeRoomModal';
 import { GAMES_CONFIG } from '@/config/gamesConfig';
 
 interface DashboardProps {
@@ -53,6 +54,9 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   const [showStakeModal, setShowStakeModal] = useState(false);
   const [showLudoRoomModal, setShowLudoRoomModal] = useState(false);
   const [ludoRoomConfig, setLudoRoomConfig] = useState<LudoRoomConfig | null>(null);
+  const [showCafeRoomModal, setShowCafeRoomModal] = useState(false);
+  const [selectedCafeGameKey, setSelectedCafeGameKey] = useState<CafeGameKey>('ludo');
+  const [cafeRoomConfig, setCafeRoomConfig] = useState<CafeRoomConfig | null>(null);
   const [pendingGameTitle, setPendingGameTitle] = useState('');
   const [pendingGameMode, setPendingGameMode] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('ludo');
   const [selectedStakeConfig, setSelectedStakeConfig] = useState<{
@@ -88,6 +92,10 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             }
             if (parsed.ludoConfig) {
               setLudoRoomConfig(parsed.ludoConfig);
+            }
+            if (parsed.cafeConfig) {
+              setCafeRoomConfig(parsed.cafeConfig);
+              setSelectedCafeGameKey(parsed.cafeConfig.gameKey);
             }
             setShowGameModal(true);
           } else {
@@ -477,24 +485,46 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   };
 
   const launchGameMode = (gameId: string) => {
-    if (gameId === 'ludo-game') {
-      setShowLudoRoomModal(true);
+    // 6 Cafe Social Games (القهوة البلدي: لودو، دومينو، طاولة، شطرنج، أونو، استميشن)
+    const cafeMap: Record<string, CafeGameKey> = {
+      'ludo-game': 'ludo',
+      'domino-game': 'domino',
+      'backgammon-game': 'backgammon',
+      'rpg-chess': 'chess',
+      'uno-game': 'uno',
+      'estimation-game': 'estimation',
+    };
+
+    if (cafeMap[gameId]) {
+      setSelectedCafeGameKey(cafeMap[gameId]);
+      setShowCafeRoomModal(true);
       return;
     }
 
-    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'chess';
+    // Billiards & Arcade Games use standard stake / arcade modal
+    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'billiards';
     if (gameId === 'billiards-game') resolvedMode = 'billiards';
-    else if (gameId === 'domino-game') resolvedMode = 'domino';
-    else if (gameId === 'uno-game') resolvedMode = 'uno';
-    else if (gameId === 'estimation-game') resolvedMode = 'estimation';
     else if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
-    else if (gameId === 'backgammon-game') resolvedMode = 'backgammon';
     else if (gameId === 'fighter-game') resolvedMode = 'fighter';
 
     const matched = GAMES_CONFIG.find((g) => g.id === gameId);
     setPendingGameTitle(lang === 'ar' ? (matched?.titleAr || 'طاولة الرهان') : (matched?.titleEn || 'Stake Table'));
     setPendingGameMode(resolvedMode);
     setShowStakeModal(true);
+  };
+
+  const handleStartCafeGame = (config: CafeRoomConfig) => {
+    setCafeRoomConfig(config);
+    setShowCafeRoomModal(false);
+    setActiveGame(config.gameKey);
+    setShowGameModal(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('active_game_session', JSON.stringify({
+        game: config.gameKey,
+        cafeConfig: config,
+        timestamp: Date.now(),
+      }));
+    }
   };
 
   const handleStartLudo = (config: LudoRoomConfig) => {
@@ -1328,14 +1358,29 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                   src={
                     (() => {
                       if (activeGame === 'ludo') {
-                        const role = ludoRoomConfig?.role || 'player';
-                        const players = ludoRoomConfig?.playerCount || 4;
+                        const role = cafeRoomConfig?.role || ludoRoomConfig?.role || 'player';
+                        const players = cafeRoomConfig?.playerCount || ludoRoomConfig?.playerCount || 4;
                         const pieces = ludoRoomConfig?.pieceCount || 4;
                         const winRule = ludoRoomConfig?.winRule || 'all';
-                        const stake = ludoRoomConfig?.entryFee || 50;
-                        const roomName = encodeURIComponent(ludoRoomConfig?.roomName || 'Ludo Room');
+                        const stake = cafeRoomConfig?.entryFee || ludoRoomConfig?.entryFee || 50;
+                        const roomName = encodeURIComponent(cafeRoomConfig?.roomName || ludoRoomConfig?.roomName || 'Ludo Room');
                         return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomName=${roomName}`;
                       }
+
+                      // Handle other 5 Cafe Social Games (Domino, Backgammon, Chess, Uno, Estimation)
+                      if (['domino', 'backgammon', 'chess', 'uno', 'estimation'].includes(activeGame)) {
+                        const role = cafeRoomConfig?.role || 'player';
+                        const players = cafeRoomConfig?.playerCount || 4;
+                        const stake = cafeRoomConfig?.entryFee || 50;
+                        const prize = cafeRoomConfig?.prizeAmount || (stake * (players === 2 ? 1.9 : 3.8));
+                        const roomName = encodeURIComponent(cafeRoomConfig?.roomName || 'Cafe Table');
+                        const matched = GAMES_CONFIG.find(g => g.key === activeGame);
+                        const base = matched?.embedUrl || `/games/${activeGame}`;
+                        const sep = base.includes('?') ? '&' : '?';
+                        return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&role=${role}&stake=${stake}&prize=${prize}&roomName=${roomName}&players=${players}&autoStart=true`;
+                      }
+
+                      // General games (Billiards, arcade)
                       const matched = GAMES_CONFIG.find(g => g.key === activeGame);
                       const base = matched?.embedUrl || `/games/${activeGame}`;
                       const sep = base.includes('?') ? '&' : '?';
@@ -1370,6 +1415,18 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
           onClose={() => setShowStakeModal(false)}
           onStartGame={handleStartGameFromStakeModal}
           addToast={addToast}
+        />
+      )}
+
+      {/* Cafe Games Unified Table & Room Selector Modal (Ludo, Domino, Backgammon, Chess, Uno, Estimation) */}
+      {showCafeRoomModal && (
+        <CafeRoomModal
+          gameKey={selectedCafeGameKey}
+          profile={profile}
+          onClose={() => setShowCafeRoomModal(false)}
+          onStartGame={handleStartCafeGame}
+          addToast={addToast}
+          lang={lang}
         />
       )}
 
