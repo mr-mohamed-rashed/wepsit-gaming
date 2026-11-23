@@ -968,7 +968,7 @@ function LudoApp() {
 
   // Live Room Ticker & Bottom Interaction States (Yalla Ludo Style)
   const [chatTab, setChatTab] = useState<'all' | 'gift' | 'news'>('all');
-  const [chatMessages, setChatMessages] = useState<Array<{ id: string; user?: string; text: string; type: 'chat' | 'gift' | 'system' }>>([
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; user?: string; text: string; type: 'chat' | 'gift' | 'system' | 'news' }>>([
     { id: '1', text: '🎮 مرحباً بكم في غرفة لودو الممالك الرسمية!', type: 'system' },
     { id: '2', user: 'حنين', text: 'نورتى الغرفة يا علي ✨', type: 'chat' },
     { id: '3', text: '🏆 البطولة بدأت، نرد الحظ في الميدان!', type: 'news' }
