@@ -783,9 +783,10 @@ function LudoApp() {
   const initialPieceCount = queryPieces === '2' ? 2 : 4;
   const initialWinRule = (queryWinRule === 'first' ? 'first' : 'all') as 'first' | 'all';
 
-  const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room'>('rooms');
+  // --- Room & Role Architecture (فصل إنشاء الغرفة عن الجيم) ---
+  const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room' | 'active_room'>('active_room');
   const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryRole);
-  const [gameStarted, setGameStarted] = useState<boolean>(queryAutoStart);
+  const [gameStarted, setGameStarted] = useState<boolean>(false); // Starts from inside the room
   const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
   const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>('classic');
   const [playerCount, setPlayerCount] = useState<2 | 3 | 4>(initialPlayerCount);
@@ -795,9 +796,151 @@ function LudoApp() {
   const [roomTitle, setRoomTitle] = useState<string>(
     queryRoomName || (lang === 'ar' ? 'غرفة لودو الملكية 👑' : 'Royal Ludo Room 👑')
   );
+  const [roomId, setRoomId] = useState<string>(() => `R-${Math.floor(1000 + Math.random() * 9000)}`);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [winner, setWinner] = useState<PlayerColor | null>(null);
   const [winReward, setWinReward] = useState<number>(0);
+
+  // --- Voice Mic & Local Device Music Player State (تشغيل أغاني من جهازه) ---
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const musicFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [musicTrackName, setMusicTrackName] = useState<string | null>(null);
+  const [isPlayingMusic, setIsPlayingMusic] = useState<boolean>(false);
+  const [musicVolume, setMusicVolume] = useState<number>(0.6);
+  const [isMicOn, setIsMicOn] = useState<boolean>(true);
+
+  // --- Room Authority (Host & Deputy) ---
+  const [roomHostId, setRoomHostId] = useState<string>(queryUserId || '12842582');
+  const [roomHostName, setRoomHostName] = useState<string>(queryUsername || 'Ali');
+  const [roomHostAvatar, setRoomHostAvatar] = useState<string>(queryAvatar || '/laugh_emote.png');
+  const [roomDeputyId, setRoomDeputyId] = useState<string | null>(null);
+
+  // 4 Table Seats (Blue, Green, Red, Yellow)
+  interface RoomSeatUser {
+    id: string;
+    name: string;
+    avatar: string;
+    isBot: boolean;
+    isHost?: boolean;
+    isDeputy?: boolean;
+  }
+
+  const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>({
+    blue: {
+      id: queryUserId || '12842582',
+      name: queryUsername || 'Ali',
+      avatar: queryAvatar || '/laugh_emote.png',
+      isBot: false,
+      isHost: true,
+      isDeputy: false,
+    },
+    green: null,
+    red: null,
+    yellow: null,
+  });
+
+  // Spectator Voice Seats (6 seats)
+  const [spectatorSeats, setSpectatorSeats] = useState<Array<{ id: string; name: string; avatar: string; isMicOn: boolean }>>([
+    { id: 'spec-1', name: 'البرنس حامد', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hamed', isMicOn: true },
+    { id: 'spec-2', name: 'حنين نورتي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen', isMicOn: false },
+    { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true },
+  ]);
+
+  // Anti-Refresh & Anti-Swipe-Down Protection inside the game
+  useEffect(() => {
+    // 1. Prevent beforeunload
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // 2. Prevent F5 & Ctrl+R
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === 'F5' ||
+        (e.ctrlKey && (e.key === 'r' || e.key === 'R')) ||
+        (e.metaKey && (e.key === 'r' || e.key === 'R'))
+      ) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    // 3. Block mobile browser pull-to-refresh swipe down
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches && e.touches[0]) {
+        touchStartY = e.touches[0].clientY;
+      }
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches && e.touches[0]) {
+        const touchY = e.touches[0].clientY;
+        const diff = touchY - touchStartY;
+        if (diff > 0 && window.scrollY <= 1) {
+          if (e.cancelable) {
+            e.preventDefault();
+          }
+        }
+      }
+    };
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, []);
+
+  const handleMusicFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const url = URL.createObjectURL(file);
+        setMusicTrackName(file.name.replace(/\.[^/.]+$/, ''));
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          audioRef.current.volume = musicVolume;
+          audioRef.current.play()
+            .then(() => setIsPlayingMusic(true))
+            .catch(err => console.log('Audio autoplay prevented:', err));
+        }
+      } catch (err) {
+        console.error('Failed to load music file:', err);
+      }
+    }
+  };
+
+  const toggleMusic = () => {
+    if (!audioRef.current || !audioRef.current.src) {
+      musicFileInputRef.current?.click();
+      return;
+    }
+    if (isPlayingMusic) {
+      audioRef.current.pause();
+      setIsPlayingMusic(false);
+    } else {
+      audioRef.current.play()
+        .then(() => setIsPlayingMusic(true))
+        .catch(console.error);
+    }
+  };
+
+  const handleVolumeChange = (newVol: number) => {
+    setMusicVolume(newVol);
+    if (audioRef.current) {
+      audioRef.current.volume = newVol;
+    }
+  };
+
+  const toggleMic = () => {
+    setIsMicOn(prev => !prev);
+  };
 
   // --- Persistent Head-to-Head & Coins ---
   const [playerCoins, setPlayerCoins] = useState<number>(500);
@@ -1067,17 +1210,199 @@ function LudoApp() {
     }
   };
 
-  const resetGame = () => {
+  const returnToRoom = () => {
     setWinner(null);
     setWinReward(0);
     setGameStarted(false);
-    setLobbyView('rooms');
+    setLobbyView('active_room');
     setGameState('waiting_roll');
     setTurn('blue');
     setRollingDicePlayer(null);
     isAnimatingRef.current = false;
     setIsAnimating(false);
     setFootprints([]);
+  };
+
+  const resetGame = () => {
+    returnToRoom();
+  };
+
+  const isHost = userProfile.id === roomHostId;
+  const isDeputy = userProfile.id === roomDeputyId;
+  const canControlMatch = isHost || isDeputy;
+
+  const joinRoomFromList = (room: PublicLudoRoom, role: 'player' | 'spectator') => {
+    setRoomTitle(lang === 'ar' ? room.nameAr : room.nameEn);
+    setRoomStake(room.entryFee);
+    setRoomHostId(room.id);
+    setRoomHostName(room.hostName);
+    setRoomHostAvatar(room.hostAvatar);
+    setUserRole(role);
+    setPlayerCount(room.playerCount);
+    setPieceCount(room.modeType === 'blitz' ? 2 : 4);
+    setRoomDeputyId(null);
+
+    if (role === 'player') {
+      setTableSeats({
+        blue: { id: room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
+        green: { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: false, isDeputy: false },
+        red: null,
+        yellow: null,
+      });
+    } else {
+      setTableSeats({
+        blue: { id: room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
+        green: null,
+        red: null,
+        yellow: null,
+      });
+      setSpectatorSeats(prev => [
+        { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isMicOn: true },
+        ...prev.filter(s => s.id !== userProfile.id)
+      ]);
+    }
+    setLobbyView('active_room');
+  };
+
+  const handleCreateCustomRoom = (role: 'player' | 'spectator') => {
+    setRoomHostId(userProfile.id);
+    setRoomHostName(userProfile.username);
+    setRoomHostAvatar(userProfile.avatar_url || '/laugh_emote.png');
+    setUserRole(role);
+    setRoomDeputyId(null);
+
+    if (role === 'player') {
+      setTableSeats({
+        blue: { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: true, isDeputy: false },
+        green: null,
+        red: null,
+        yellow: null,
+      });
+    } else {
+      setTableSeats({
+        blue: null,
+        green: null,
+        red: null,
+        yellow: null,
+      });
+      setSpectatorSeats(prev => [
+        { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isMicOn: true },
+        ...prev.filter(s => s.id !== userProfile.id)
+      ]);
+    }
+    setLobbyView('active_room');
+  };
+
+  const handleTakePlayerSeat = (color: PlayerColor) => {
+    setTableSeats(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as PlayerColor[]).forEach(k => {
+        if (next[k]?.id === userProfile.id) {
+          next[k] = null;
+        }
+      });
+      next[color] = {
+        id: userProfile.id,
+        name: userProfile.username,
+        avatar: userProfile.avatar_url || '/laugh_emote.png',
+        isBot: false,
+        isHost: userProfile.id === roomHostId,
+        isDeputy: userProfile.id === roomDeputyId,
+      };
+      return next;
+    });
+    setUserRole('player');
+  };
+
+  const handleToggleBotOnSeat = (color: PlayerColor) => {
+    setTableSeats(prev => {
+      const current = prev[color];
+      if (current && current.isBot) {
+        return { ...prev, [color]: null };
+      }
+      return {
+        ...prev,
+        [color]: {
+          id: `bot-${color}`,
+          name: color === 'green' ? 'محمود (بوت)' : color === 'red' ? 'الساحر (بوت)' : 'صقر (بوت)',
+          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=Bot${color}`,
+          isBot: true,
+          isHost: false,
+          isDeputy: false,
+        }
+      };
+    });
+  };
+
+  const handleAssignDeputy = (occupantId: string) => {
+    if (!isHost) return;
+    if (occupantId === roomHostId) return;
+    setRoomDeputyId(occupantId);
+    setTableSeats(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as PlayerColor[]).forEach(k => {
+        if (next[k]) {
+          next[k] = { ...next[k]!, isDeputy: next[k]!.id === occupantId };
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleJoinSpectatorSeats = () => {
+    setTableSeats(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as PlayerColor[]).forEach(k => {
+        if (next[k]?.id === userProfile.id) {
+          next[k] = null;
+        }
+      });
+      return next;
+    });
+    setUserRole('spectator');
+    setSpectatorSeats(prev => {
+      if (prev.some(s => s.id === userProfile.id)) return prev;
+      return [
+        { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isMicOn: true },
+        ...prev
+      ];
+    });
+  };
+
+  const startMatchFromRoom = () => {
+    const isSpectator = userRole === 'spectator';
+    const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
+      blue: 'none',
+      green: 'none',
+      red: 'none',
+      yellow: 'none',
+    };
+
+    if (playerCount === 2) {
+      config.blue = tableSeats.blue ? (tableSeats.blue.isBot ? 'bot' : (tableSeats.blue.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+      config.green = tableSeats.green ? (tableSeats.green.isBot ? 'bot' : (tableSeats.green.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+      config.red = 'none';
+      config.yellow = 'none';
+    } else {
+      config.blue = tableSeats.blue ? (tableSeats.blue.isBot ? 'bot' : (tableSeats.blue.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+      config.green = tableSeats.green ? (tableSeats.green.isBot ? 'bot' : (tableSeats.green.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+      config.red = tableSeats.red ? (tableSeats.red.isBot ? 'bot' : (tableSeats.red.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+      config.yellow = tableSeats.yellow ? (tableSeats.yellow.isBot ? 'bot' : (tableSeats.yellow.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
+    }
+
+    setPlayerConfig(config);
+    setGameStarted(true);
+    setTurn('blue');
+    setConsecutiveSixes(0);
+    setExtraRolls(0);
+    setWinner(null);
+    setWinReward(0);
+    setRollingDicePlayer(null);
+    setGameState('waiting_roll');
+    isAnimatingRef.current = false;
+    setIsAnimating(false);
+    setFootprints([]);
+
     setTokens(() => {
       const initial: Token[] = [];
       const colors: PlayerColor[] = ['red', 'green', 'blue', 'yellow'];
@@ -1088,8 +1413,12 @@ function LudoApp() {
       }
       return initial;
     });
-    setExtraRolls(0);
-    setConsecutiveSixes(0);
+
+    setStatusMessage(
+      isSpectator
+        ? (lang === 'ar' ? '🎙️ أنت في مقاعد المتفرجين على المايك! يمكنك إرسال الهدايا وتشجيع اللاعبين.' : '🎙️ You are spectating from the mic seats! Send gifts & cheer!')
+        : (lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.')
+    );
   };
 
   // Sound Synthesizers (Web Audio API)
@@ -2824,7 +3153,17 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
   };
 
   return (
-    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none touch-manipulation">
+    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none overscroll-y-none touch-manipulation">
+
+      {/* Persistent HTML5 Audio for Local Music */}
+      <audio ref={audioRef} loop className="hidden" />
+      <input
+        type="file"
+        ref={musicFileInputRef}
+        accept="audio/*"
+        onChange={handleMusicFileChange}
+        className="hidden"
+      />
 
       {/* 5-Second Animated Splash Screen / Intro Scene */}
       {showCinematicIntro && (
@@ -2867,22 +3206,53 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
             <span className="hidden sm:inline">{lang === 'ar' ? 'الدخلة' : 'Intro'}</span>
           </button>
 
-          {/* Sound Toggle */}
+          {/* Local Music Pill */}
+          <div className="flex items-center gap-1 bg-slate-900/80 px-2 py-1 rounded-lg border border-amber-500/30 text-xs">
+            <button
+              type="button"
+              onClick={toggleMusic}
+              className="cursor-pointer text-amber-300 hover:scale-110 active:scale-95 transition-transform"
+              title={isPlayingMusic ? 'إيقاف الموسيقى مؤقتاً' : 'تشغيل الموسيقى'}
+            >
+              {isPlayingMusic ? '⏸️' : '🎵'}
+            </button>
+            <span className="hidden sm:inline text-[10px] text-slate-300 max-w-[80px] truncate">
+              {musicTrackName || (lang === 'ar' ? 'أغاني' : 'Music')}
+            </span>
+          </div>
+
+          {/* Voice Mic Toggle */}
+          <button
+            type="button"
+            onClick={toggleMic}
+            className={`px-2 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+              isMicOn
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+            }`}
+            title={isMicOn ? 'المايك نشط' : 'المايك مكتوم'}
+          >
+            <span>{isMicOn ? '🎙️' : '🔇'}</span>
+          </button>
+
+          {/* Sound FX Toggle */}
           <button
             onClick={() => setIsMuted(prev => !prev)}
             className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-colors cursor-pointer"
-            title={isMuted ? 'تفعيل الصوت' : 'كتم الصوت'}
+            title={isMuted ? 'تفعيل المؤثرات' : 'كتم المؤثرات'}
           >
-            {isMuted ? '🔇 مكتوم' : '🔊 صوت'}
+            {isMuted ? '🔇' : '🔊'}
           </button>
 
-          {/* Reset button if playing */}
+          {/* Return to Room Lounge button if playing */}
           {gameStarted && (
             <button
-              onClick={resetGame}
-              className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800 rounded-lg text-xs font-bold text-rose-300 transition-colors cursor-pointer"
+              onClick={returnToRoom}
+              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 rounded-lg text-xs font-black text-amber-300 transition-colors cursor-pointer flex items-center gap-1 shadow"
+              title={lang === 'ar' ? 'العودة لمجلس الغرفة' : 'Back to Room'}
             >
-              {lang === 'ar' ? 'إعادة ضبط 🔄' : 'Reset 🔄'}
+              <span>🏰</span>
+              <span>{lang === 'ar' ? 'مجلس الغرفة' : 'Room'}</span>
             </button>
           )}
         </div>
@@ -2988,12 +3358,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                         <button
                           type="button"
                           disabled={isFull}
-                          onClick={() => {
-                            setUserRole('player');
-                            setPlayerCount(room.playerCount);
-                            setPieceCount(room.modeType === 'blitz' ? 2 : 4);
-                            startGame();
-                          }}
+                          onClick={() => joinRoomFromList(room, 'player')}
                           className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 ${
                             isFull
                               ? 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
@@ -3006,12 +3371,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
                         <button
                           type="button"
-                          onClick={() => {
-                            setUserRole('spectator');
-                            setPlayerCount(room.playerCount);
-                            setPieceCount(room.modeType === 'blitz' ? 2 : 4);
-                            startGame();
-                          }}
+                          onClick={() => joinRoomFromList(room, 'spectator')}
                           className="py-2 px-2.5 rounded-xl text-xs font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 cursor-pointer shadow active:scale-95 transition-all flex items-center justify-center gap-1"
                         >
                           <span>🎙️</span>
@@ -3024,7 +3384,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </div>
             </div>
           </div>
-        ) : (
+        ) : lobbyView === 'create_room' ? (
           /* VIEW 2: COMPACT SETUP SCREEN IN A SINGLE SCREEN (NO SUMMARY BOX!) */
           <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative overflow-y-auto w-full">
             <div
@@ -3194,32 +3554,383 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 </div>
               </div>
 
-              {/* ACTION BUTTONS (NO SUMMARY BOX! FULLY VISIBLE IN ONE SCREEN!) */}
+              {/* ACTION BUTTONS: Enter Room Lounge */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => {
-                    setUserRole('player');
-                    startGame();
-                  }}
+                  onClick={() => handleCreateCustomRoom('player')}
                   className="w-full py-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.5)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <span>⚔️</span>
-                  <span>{lang === 'ar' ? 'إنشاء وبدء كلاعب أساسي' : 'Create & Play as Player'}</span>
+                  <span>🏰</span>
+                  <span>{lang === 'ar' ? 'إنشاء ودخول الغرفة كلاعب ⚔️' : 'Create & Enter Room as Player'}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setUserRole('spectator');
-                    startGame();
-                  }}
+                  onClick={() => handleCreateCustomRoom('spectator')}
                   className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-400/50"
                 >
                   <span>🎙️</span>
-                  <span>{lang === 'ar' ? 'إنشاء والدخول كمتفرج بالمايك' : 'Create & Join as Spectator'}</span>
+                  <span>{lang === 'ar' ? 'إنشاء ودخول الغرفة كمتفرج 🎙️' : 'Create & Enter Room as Spectator'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        ) : (
+          /* VIEW 3: ACTIVE ROOM LOUNGE (شاشة الغرفة ومجلس الطاولة - فصل إنشاء الغرفة عن الجيم) */
+          <div className="flex-1 flex flex-col items-center justify-between p-2 sm:p-4 relative overflow-y-auto w-full select-none font-sans no-pull-refresh overscroll-none">
+            {/* Ambient Background */}
+            <div
+              className="absolute inset-0 bg-cover bg-center -z-10 opacity-25 filter blur-sm scale-105 pointer-events-none select-none"
+              style={{ backgroundImage: `url('/classic_ludo_board.svg')` }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#02140e]/95 via-[#06241a]/90 to-slate-950/98 -z-10" />
+
+            <div className="w-full max-w-2xl flex flex-col gap-3 z-10 pb-4">
+
+              {/* 1. ROOM TOP BANNER & HEADER */}
+              <div className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-lg backdrop-blur-md">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-xl shadow">
+                    🏰
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-xs sm:text-sm font-black text-white">{roomTitle}</h2>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        #{roomId}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                      <span className="flex items-center gap-1 text-amber-300">
+                        <span>👑 المضيف:</span>
+                        <span className="font-bold">{roomHostName}</span>
+                      </span>
+                      {roomDeputyId && (
+                        <span className="flex items-center gap-1 text-cyan-300">
+                          <span>⭐ النائب معين</span>
+                        </span>
+                      )}
+                      <span className="text-amber-400 font-bold">🪙 رهان: {roomStake}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Back to Rooms Hall */}
+                <button
+                  type="button"
+                  onClick={() => setLobbyView('rooms')}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span>←</span>
+                  <span>{lang === 'ar' ? 'صالة الغرف' : 'Rooms Hall'}</span>
+                </button>
+              </div>
+
+              {/* 2. AUDIO STATION: LOCAL MUSIC FROM DEVICE + VOICE MIC */}
+              <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2.5 shadow-md">
+                {/* Local Music Controller */}
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <button
+                    type="button"
+                    onClick={toggleMusic}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow ${
+                      isPlayingMusic
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white animate-pulse border border-emerald-400'
+                        : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40'
+                    }`}
+                    title={lang === 'ar' ? 'تشغيل أو إيقاف الموسيقى' : 'Play / Pause music'}
+                  >
+                    <span>{isPlayingMusic ? '⏸️' : '🎵'}</span>
+                    <span className="truncate max-w-[130px]">
+                      {musicTrackName || (lang === 'ar' ? 'أغاني من جهازي' : 'Local Music')}
+                    </span>
+                  </button>
+
+                  {/* Pick Audio File */}
+                  <button
+                    type="button"
+                    onClick={() => musicFileInputRef.current?.click()}
+                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold border border-slate-700 transition-all cursor-pointer"
+                    title={lang === 'ar' ? 'اختيار أغنية من هاتفك أو جهازك' : 'Choose audio file from device'}
+                  >
+                    📂
+                  </button>
+
+                  {/* Volume Slider */}
+                  <div className="hidden sm:flex items-center gap-1 text-[10px] text-slate-400">
+                    <span>🔈</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={musicVolume}
+                      onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                      className="w-16 accent-amber-400 cursor-pointer h-1"
+                    />
+                  </div>
+                </div>
+
+                {/* Voice Mic Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    isMicOn
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                      : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                  }`}
+                >
+                  <span>{isMicOn ? '🎙️' : '🔇'}</span>
+                  <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic On') : (lang === 'ar' ? 'مكتوم' : 'Muted')}</span>
+                </button>
+              </div>
+
+              {/* 3. THE 4 TABLE PLAYER SEATS */}
+              <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-3.5 shadow-xl">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80 text-xs font-bold">
+                  <span className="text-amber-400 flex items-center gap-1.5">
+                    <span>🎲</span>
+                    <span>{lang === 'ar' ? 'مقاعد الطاولة (اللاعبين الأساسيين):' : 'Table Player Seats:'}</span>
+                  </span>
+                  <span className="text-slate-400 text-[10px]">
+                    {lang === 'ar' ? `المقاعد: ${playerCount} لاعبين` : `${playerCount} Players`}
+                  </span>
+                </div>
+
+                {/* 4 Corner Seats Grid */}
+                <div className="grid grid-cols-2 gap-2.5 pt-2.5">
+                  {(['blue', 'green', 'red', 'yellow'] as PlayerColor[]).map((color) => {
+                    const seat = tableSeats[color];
+                    const isBlue = color === 'blue';
+                    const isGreen = color === 'green';
+                    const isRed = color === 'red';
+
+                    const colorBg = isBlue
+                      ? 'border-blue-500/40 bg-blue-950/20'
+                      : isGreen
+                      ? 'border-emerald-500/40 bg-emerald-950/20'
+                      : isRed
+                      ? 'border-rose-500/40 bg-rose-950/20'
+                      : 'border-amber-500/40 bg-amber-950/20';
+
+                    const colorLabel = isBlue
+                      ? (lang === 'ar' ? 'المقعد الأزرق (المضيف)' : 'Blue (Host)')
+                      : isGreen
+                      ? (lang === 'ar' ? 'المقعد الأخضر' : 'Green')
+                      : isRed
+                      ? (lang === 'ar' ? 'المقعد الأحمر' : 'Red')
+                      : (lang === 'ar' ? 'المقعد الأصفر' : 'Yellow');
+
+                    return (
+                      <div
+                        key={color}
+                        className={`p-2.5 rounded-2xl border ${colorBg} flex flex-col justify-between gap-2 transition-all relative overflow-hidden`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400">{colorLabel}</span>
+                          {seat?.isHost && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-400/40">
+                              👑 صاحب الغرفة
+                            </span>
+                          )}
+                          {seat?.isDeputy && (
+                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded font-black border border-cyan-400/40">
+                              ⭐ نائب
+                            </span>
+                          )}
+                        </div>
+
+                        {seat ? (
+                          /* Occupied Seat */
+                          <div className="flex items-center gap-2 py-0.5">
+                            <img
+                              src={seat.avatar}
+                              alt={seat.name}
+                              className="w-9 h-9 rounded-full border-2 border-white/30 bg-slate-900 object-cover"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-black text-white truncate">{seat.name}</div>
+                              <div className="text-[9px] text-emerald-400 font-bold flex items-center gap-1">
+                                <span>●</span>
+                                <span>{seat.isBot ? 'روبوت ذكي 🤖' : 'لاعب جاهز ⚔️'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Empty Seat */
+                          <div className="py-1.5 flex flex-col items-center justify-center text-center gap-1">
+                            <div className="w-8 h-8 rounded-full border border-dashed border-slate-700 flex items-center justify-center text-slate-500 text-sm">
+                              🪑
+                            </div>
+                            <span className="text-[9px] text-slate-500">{lang === 'ar' ? 'مقعد شاغر' : 'Empty Seat'}</span>
+                          </div>
+                        )}
+
+                        {/* Seat Action Buttons */}
+                        <div className="flex items-center gap-1 pt-1 border-t border-slate-800/60">
+                          {!seat ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleTakePlayerSeat(color)}
+                                className="flex-1 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-slate-950 text-[10px] font-black cursor-pointer transition-all"
+                              >
+                                {lang === 'ar' ? 'اجلس كلاعب ⚔️' : 'Sit Here ⚔️'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleBotOnSeat(color)}
+                                className="p-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer transition-all"
+                                title="إضافة روبوت"
+                              >
+                                🤖
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {isHost && !seat.isHost && !seat.isBot && !seat.isDeputy && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAssignDeputy(seat.id)}
+                                  className="flex-1 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-300 border border-cyan-500/40 text-[9px] font-black cursor-pointer transition-all"
+                                >
+                                  {lang === 'ar' ? 'تعيين كنائب ⭐' : 'Make Deputy ⭐'}
+                                </button>
+                              )}
+                              {seat.isBot && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBotOnSeat(color)}
+                                  className="flex-1 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 text-[9px] font-bold cursor-pointer transition-all"
+                                >
+                                  {lang === 'ar' ? 'إزالة البوت ✕' : 'Remove Bot ✕'}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4. SPECTATOR VOICE SEATS (مقاعد المتفرجين الصوتية) */}
+              <div className="bg-slate-950/70 border border-purple-500/30 rounded-2xl p-2.5 flex flex-col gap-2">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-purple-300 flex items-center gap-1.5">
+                    <span>🎙️</span>
+                    <span>{lang === 'ar' ? 'مقاعد المتفرجين الصوتية (تشجيع ومايك):' : 'Spectator Voice Seats:'}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleJoinSpectatorSeats}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 px-2.5 py-0.5 rounded-lg border border-purple-500/30 cursor-pointer transition-all font-bold"
+                  >
+                    {lang === 'ar' ? '+ اصعد لمقاعد المتفرجين' : '+ Join Spectators'}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar">
+                  {spectatorSeats.map((spec) => (
+                    <div
+                      key={spec.id}
+                      className="flex flex-col items-center gap-1 shrink-0 p-1.5 bg-slate-900/60 border border-purple-500/20 rounded-xl min-w-[70px]"
+                    >
+                      <div className="relative">
+                        <img
+                          src={spec.avatar}
+                          alt={spec.name}
+                          className="w-8 h-8 rounded-full border border-purple-400/50 bg-slate-950"
+                        />
+                        <span className="absolute -bottom-1 -right-1 text-[10px]">
+                          {spec.isMicOn ? '🎙️' : '🔇'}
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-slate-300 font-bold truncate max-w-[65px]">
+                        {spec.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 5. MATCH LAUNCHER & HOST CONTROLLER (من داخل الغرفة فقط) */}
+              <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-3.5 shadow-2xl space-y-3">
+                {canControlMatch ? (
+                  <>
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                        <span>⚡</span>
+                        <span>{lang === 'ar' ? 'لوحة تحكم صاحب الغرفة والنائب:' : 'Room Host Controls:'}</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {lang === 'ar' ? 'أنت تتحكم ببدء الجيم والقواعد 👑' : 'You control match launch 👑'}
+                      </span>
+                    </div>
+
+                    {/* Mode selection: 2 Players vs 4 Players */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setPlayerCount(2)}
+                        className={`py-2 rounded-xl border text-center transition-all cursor-pointer font-bold ${
+                          playerCount === 2
+                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 shadow'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        ⚔️ {lang === 'ar' ? 'نمط زوجي (2 لاعبين 1v1)' : '2 Players (1v1)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPlayerCount(4)}
+                        className={`py-2 rounded-xl border text-center transition-all cursor-pointer font-bold ${
+                          playerCount === 4
+                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 shadow'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        👑 {lang === 'ar' ? 'نمط رباعي (4 لاعبين كامل)' : '4 Players (Full)'}
+                      </button>
+                    </div>
+
+                    {/* Solo / Bot Notice */}
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-2 text-[10px] text-amber-300/90 flex items-center gap-2">
+                      <span className="text-base">💡</span>
+                      <span>
+                        {lang === 'ar'
+                          ? 'لو جالس وحدك في الغرفة أو لم يكتمل باقي اللاعبين، سيتم تشغيل البوتات الذكية 🤖 تلقائياً لملء المقاعد واللعب معك فوراً!'
+                          : 'If you are alone or seats are empty, smart AI bots 🤖 will fill in and play immediately!'}
+                      </span>
+                    </div>
+
+                    {/* Hero Launch Button */}
+                    <button
+                      type="button"
+                      onClick={startMatchFromRoom}
+                      className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-sm rounded-2xl shadow-[0_0_30px_rgba(251,191,36,0.6)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-2 border border-amber-300"
+                    >
+                      <span>🚀</span>
+                      <span>{lang === 'ar' ? 'بدء الجيم الآن داخل الغرفة (Start Match)' : 'Launch Match in Room'}</span>
+                    </button>
+                  </>
+                ) : (
+                  /* Not host/deputy */
+                  <div className="p-3 text-center space-y-1">
+                    <div className="text-xs font-bold text-slate-300 flex items-center justify-center gap-1.5">
+                      <span>⏳</span>
+                      <span>{lang === 'ar' ? `بانتظار صاحب الغرفة (${roomHostName}) أو نائبه لبدء المباراة...` : 'Waiting for host to launch match...'}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      {lang === 'ar' ? 'استمتع بالدردشة وسماع الأغاني والتفاعل مع الحاضرين حتى تبدأ المعركة ☕' : 'Chat, enjoy local music & get ready!'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         )
@@ -3261,6 +3972,14 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   title={lang === 'ar' ? 'سجل المواجهات والبطولات' : 'H2H & Leaderboard'}
                 >
                   🏆
+                </button>
+                <button
+                  type="button"
+                  onClick={returnToRoom}
+                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-amber-500/50 hover:bg-amber-500/20 flex items-center justify-center text-xs shadow cursor-pointer active:scale-90 text-amber-300"
+                  title={lang === 'ar' ? 'العودة لمجلس الغرفة' : 'Back to Room Lounge'}
+                >
+                  🏰
                 </button>
               </div>
 
