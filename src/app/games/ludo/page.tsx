@@ -915,6 +915,33 @@ function LudoApp() {
     { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true, isMuted: false },
   ]);
 
+  // 👥 Friend Requests State (إضافة الأصدقاء)
+  const [sentFriendRequests, setSentFriendRequests] = useState<string[]>([]);
+
+  const handleSendFriendRequest = (targetUserId: string, targetUserName: string) => {
+    if (sentFriendRequests.includes(targetUserId)) {
+      setStatusMessage(
+        lang === 'ar'
+          ? `🤝 تم إرسال طلب الصداقة إلى ${targetUserName} مسبقاً`
+          : `Friend request already sent to ${targetUserName}`
+      );
+      return;
+    }
+    setSentFriendRequests(prev => [...prev, targetUserId]);
+    playGiftSound('chime');
+    setStatusMessage(
+      lang === 'ar'
+        ? `🤝 تم إرسال طلب صداقة إلى ${targetUserName}`
+        : `Sent friend request to ${targetUserName}`
+    );
+    addChatMessage(
+      lang === 'ar'
+        ? `🤝 أرسلت طلب صداقة إلى ${targetUserName}.`
+        : `Sent friend request to ${targetUserName}.`,
+      'system'
+    );
+  };
+
   // Anti-Refresh & Anti-Swipe-Down Protection inside the game
   useEffect(() => {
     // 1. Prevent beforeunload
@@ -1415,6 +1442,9 @@ function LudoApp() {
   };
 
   const returnToRoom = () => {
+    try {
+      localStorage.removeItem('ludo_active_match_session');
+    } catch (e) {}
     setWinner(null);
     setWinReward(0);
     setGameStarted(false);
@@ -1428,6 +1458,9 @@ function LudoApp() {
   };
 
   const resetGame = () => {
+    try {
+      localStorage.removeItem('ludo_active_match_session');
+    } catch (e) {}
     returnToRoom();
   };
 
@@ -1883,6 +1916,69 @@ function LudoApp() {
     return () => clearTimeout(timer);
   }, [turn, gameState, playerConfig, rollingDicePlayer, winner]);
 
+  // 💾 Restore Active Match Session on Mount (استئناف اللعبة عند الخروج أو التحديث)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem('ludo_active_match_session');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data && data.gameStarted && !data.winner && (Date.now() - (data.timestamp || 0) < 4 * 60 * 60 * 1000)) {
+          if (data.tokens && data.tokens.length > 0) setTokens(data.tokens);
+          if (data.turn) setTurn(data.turn);
+          if (data.gameState) setGameState(data.gameState);
+          if (data.diceValues) setDiceValues(data.diceValues);
+          if (data.playerConfig) setPlayerConfig(data.playerConfig);
+          if (data.playerCount) setPlayerCount(data.playerCount);
+          if (data.pieceCount) setPieceCount(data.pieceCount);
+          if (data.selectedBoardSkin) setSelectedBoardSkin(data.selectedBoardSkin);
+          if (data.tableSeats) setTableSeats(data.tableSeats);
+          if (data.roomHostId) setRoomHostId(data.roomHostId);
+          if (data.roomHostName) setRoomHostName(data.roomHostName);
+          setGameStarted(true);
+          setLobbyView('active_room');
+          setStatusMessage(
+            lang === 'ar'
+              ? '🔄 تم استئناف اللعبة السابقة بنجاح من حيث توقفت!'
+              : '🔄 Resumed your active match where you left off!'
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('Could not restore ludo match session', e);
+    }
+  }, []);
+
+  // 💾 Auto-save Active Match Session on state updates
+  useEffect(() => {
+    if (!gameStarted || winner) {
+      if (winner) {
+        try { localStorage.removeItem('ludo_active_match_session'); } catch (e) {}
+      }
+      return;
+    }
+    try {
+      const session = {
+        gameStarted: true,
+        turn,
+        gameState,
+        tokens,
+        diceValues,
+        playerConfig,
+        playerCount,
+        pieceCount,
+        selectedBoardSkin,
+        tableSeats,
+        roomHostId,
+        roomHostName,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem('ludo_active_match_session', JSON.stringify(session));
+    } catch (e) {
+      console.warn('Could not save ludo match session', e);
+    }
+  }, [gameStarted, winner, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
+
   const getValidMoves = (playerColor: PlayerColor, diceVal: number) => {
     const validTokens: Token[] = [];
     const playerTokens = tokens.filter(t => t.color === playerColor);
@@ -2259,7 +2355,53 @@ function LudoApp() {
     }
   }, [turn, rollingDicePlayer, gameStarted, playerConfig, gameState, diceValues, winner]);
 
-const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSelectable?: boolean }) => {
+  // ⏱️ Fast Turn Countdown Timer (10 seconds total, auto-plays on expiry)
+  const TURN_TIMEOUT_SECONDS = 10;
+  const [turnTimeLeft, setTurnTimeLeft] = useState<number>(TURN_TIMEOUT_SECONDS);
+  const turnStartTimeRef = useRef<number>(Date.now());
+  const turnProgress = Math.max(0, Math.min(1, turnTimeLeft / TURN_TIMEOUT_SECONDS));
+
+  // Reset timer on turn or game state transition
+  useEffect(() => {
+    turnStartTimeRef.current = Date.now();
+    setTurnTimeLeft(TURN_TIMEOUT_SECONDS);
+  }, [turn, gameState, gameStarted]);
+
+  useEffect(() => {
+    if (!gameStarted || winner || isAnimating) return;
+
+    const interval = setInterval(() => {
+      const elapsed = (Date.now() - turnStartTimeRef.current) / 1000;
+      const remaining = Math.max(0, TURN_TIMEOUT_SECONDS - elapsed);
+      setTurnTimeLeft(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(interval);
+        // Auto-roll if waiting for roll
+        if (gameState === 'waiting_roll' && rollingDicePlayer === null) {
+          rollDice();
+        } else if (gameState === 'waiting_move') {
+          // Auto-move best token
+          const validMoves = getValidMoves(turn, diceValues[turn]);
+          if (validMoves.length > 0) {
+            const moveOut = validMoves.find(t => t.position === -1);
+            handleTokenClick(moveOut || validMoves[0]);
+          } else {
+            // Pass turn if no moves
+            const nextPlayer = getNextActivePlayer(turn);
+            setTurn(nextPlayer);
+            setConsecutiveSixes(0);
+            setExtraRolls(0);
+            setGameState('waiting_roll');
+          }
+        }
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues]);
+
+  const ThemedLudoToken = ({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) => {
     const theme = selectedBoardSkin || 'classic';
 
     // 1. CLASSIC THEME (Traditional 3D Royal Ludo Pawn - Identical to User's Reference Photo)
@@ -2295,7 +2437,9 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${
+            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
+          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_rgba(250,204,21,0.95)]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2403,7 +2547,9 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${
+            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
+          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#06b6d4]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2501,7 +2647,9 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
       return (
         <div
-          className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${
+            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
+          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#f59e0b]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2621,8 +2769,10 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
     return (
       <div
-        className={`relative w-[85%] h-[119%] -translate-y-[38%] flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
-          isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_14px_${cfg.neon}]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
+        className={`relative ${
+          isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
+        } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          isSelectable ? `animate-bounce z-30 filter drop-shadow-[0_0_14px_${cfg.neon}]` : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
         }`}
       >
         <svg className="w-full h-full overflow-visible" viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg">
@@ -3116,7 +3266,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
     return (
       <div
         key={`slot-${baseColor}-${slotIndex}`}
-        className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/35 border border-white/20 shadow-inner flex items-center justify-center"
+        className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 border border-white/20 shadow-inner flex items-center justify-center overflow-hidden shrink-0"
       >
         {isTokenActive && isAtHome && token ? (
           <div
@@ -3126,11 +3276,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 handleTokenClick(token);
               }
             }}
-            className={`w-[90%] h-[90%] rounded-full flex items-center justify-center transition-all ${
+            className={`w-full h-full rounded-full flex items-center justify-center transition-all ${
               isValidMove ? 'cursor-pointer animate-bounce ring-2 ring-amber-300 z-30' : ''
             }`}
           >
-            <ThemedLudoToken color={baseColor} isSelectable={isValidMove} />
+            <ThemedLudoToken color={baseColor} isSelectable={isValidMove} isAtHome={true} />
           </div>
         ) : !isTokenActive ? (
           <span className="text-[8px] opacity-20">🔒</span>
@@ -3208,8 +3358,8 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
       <div
         key={`corner-${baseColor}`}
         style={gridStyle}
-        className={`w-full h-full relative rounded-2xl sm:rounded-3xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
-          isTurn ? 'ring-2 sm:ring-4 ring-amber-300/90 shadow-[0_0_20px_rgba(251,191,36,0.8)] z-20 scale-[1.01]' : 'opacity-95 z-10'
+        className={`w-full h-full relative rounded-2xl sm:rounded-3xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 m-[2px] flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
+          isTurn ? 'ring-2 sm:ring-4 ring-amber-300/90 shadow-[0_0_20px_rgba(251,191,36,0.8)] z-20' : 'opacity-95 z-10'
         }`}
       >
         {/* Active Impact (Gift animation) */}
@@ -3255,30 +3405,81 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
                   title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
                 >
-                  <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
-                    <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
-                    {avatarImg && (
-                      <img
-                        src={avatarImg}
-                        alt={dispName}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
+                  {/* Avatar with Circular Countdown Ring */}
+                  <div className="relative shrink-0 flex items-center justify-center">
+                    {isTurn && gameStarted && !winner && (
+                      <svg className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
+                        <circle
+                          cx="50%"
+                          cy="50%"
+                          r="44%"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.2)"
+                          strokeWidth="3"
+                        />
+                        <circle
+                          cx="50%"
+                          cy="50%"
+                          r="44%"
+                          fill="none"
+                          stroke={turnProgress > 0.4 ? '#10b981' : turnProgress > 0.18 ? '#f59e0b' : '#ef4444'}
+                          strokeWidth="3.5"
+                          strokeDasharray="100"
+                          strokeDashoffset={100 - (turnProgress * 100)}
+                          strokeLinecap="round"
+                          className="transition-[stroke-dashoffset] duration-100"
+                          pathLength="100"
+                        />
+                      </svg>
                     )}
-                    {/* Mic indicator */}
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
-                      {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                    <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base ${
+                      isTurn && gameStarted && !winner ? 'ring-2 ring-amber-400' : ''
+                    }`}>
+                      <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
+                      {avatarImg && (
+                        <img
+                          src={avatarImg}
+                          alt={dispName}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                      {/* Mic indicator */}
+                      <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
+                        {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                      </div>
+                      {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
+                        <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                      )}
                     </div>
-                    {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
-                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                    )}
                   </div>
+
                   <div className="min-w-0">
-                    <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
-                      {dispName}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
+                        {dispName}
+                      </span>
+                      {!isBlue && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const seatUser = tableSeats[baseColor];
+                            handleSendFriendRequest(seatUser?.id || `user-${baseColor}`, dispName);
+                          }}
+                          className={`px-1.5 py-0.2 rounded-full text-[8px] font-black shrink-0 transition-all ${
+                            sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`)
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-purple-600 hover:bg-purple-500 text-white active:scale-90'
+                          }`}
+                          title={lang === 'ar' ? 'إضافة صديق' : 'Add Friend'}
+                        >
+                          {sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '✓' : '👤+'}
+                        </button>
+                      )}
+                    </div>
                     {isBlue && (
                       <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
                         🪙 {playerCoins}
@@ -3293,14 +3494,14 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </div>
             ) : (
               /* 4 Token Home Pads for Bottom Bases (Red & Blue) */
-              <div className="w-full flex items-center justify-around py-0.5">
+              <div className="w-full flex items-center justify-around py-0.5 px-1 my-0.5">
                 {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
               </div>
             )}
 
             {isTop ? (
               /* 4 Token Home Pads for Top Bases (Green & Yellow) */
-              <div className="w-full flex items-center justify-around py-0.5">
+              <div className="w-full flex items-center justify-around py-0.5 px-1 my-0.5">
                 {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
               </div>
             ) : (
@@ -3322,30 +3523,81 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
                   title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
                 >
-                  <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
-                    <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
-                    {avatarImg && (
-                      <img
-                        src={avatarImg}
-                        alt={dispName}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
+                  {/* Avatar with Circular Countdown Ring */}
+                  <div className="relative shrink-0 flex items-center justify-center">
+                    {isTurn && gameStarted && !winner && (
+                      <svg className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
+                        <circle
+                          cx="50%"
+                          cy="50%"
+                          r="44%"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.2)"
+                          strokeWidth="3"
+                        />
+                        <circle
+                          cx="50%"
+                          cy="50%"
+                          r="44%"
+                          fill="none"
+                          stroke={turnProgress > 0.4 ? '#10b981' : turnProgress > 0.18 ? '#f59e0b' : '#ef4444'}
+                          strokeWidth="3.5"
+                          strokeDasharray="100"
+                          strokeDashoffset={100 - (turnProgress * 100)}
+                          strokeLinecap="round"
+                          className="transition-[stroke-dashoffset] duration-100"
+                          pathLength="100"
+                        />
+                      </svg>
                     )}
-                    {/* Mic indicator */}
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
-                      {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                    <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base ${
+                      isTurn && gameStarted && !winner ? 'ring-2 ring-amber-400' : ''
+                    }`}>
+                      <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
+                      {avatarImg && (
+                        <img
+                          src={avatarImg}
+                          alt={dispName}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                      {/* Mic indicator */}
+                      <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
+                        {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                      </div>
+                      {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
+                        <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                      )}
                     </div>
-                    {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
-                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                    )}
                   </div>
+
                   <div className="min-w-0">
-                    <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
-                      {dispName}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
+                        {dispName}
+                      </span>
+                      {!isBlue && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const seatUser = tableSeats[baseColor];
+                            handleSendFriendRequest(seatUser?.id || `user-${baseColor}`, dispName);
+                          }}
+                          className={`px-1.5 py-0.2 rounded-full text-[8px] font-black shrink-0 transition-all ${
+                            sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`)
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-purple-600 hover:bg-purple-500 text-white active:scale-90'
+                          }`}
+                          title={lang === 'ar' ? 'إضافة صديق' : 'Add Friend'}
+                        >
+                          {sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '✓' : '👤+'}
+                        </button>
+                      )}
+                    </div>
                     {isBlue && (
                       <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
                         🪙 {playerCoins}
@@ -4330,7 +4582,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 onMouseUp={handleMicMouseLeaveOrUp}
                 onMouseMove={handleMicMouseMove}
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/40 rounded-full border border-white/10 backdrop-blur-sm [&::-webkit-scrollbar]:hidden shrink min-w-0"
+                className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/40 rounded-full border border-white/10 backdrop-blur-sm no-scrollbar [&::-webkit-scrollbar]:hidden shrink min-w-0"
               >
                 {/* Level / Room Rank Badge */}
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-950/90 border border-emerald-400/60 flex items-center justify-center text-[9px] font-black text-amber-300 shadow shrink-0">
@@ -4425,8 +4677,19 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 </div>
               </div>
 
-              {/* Right: User Profile Chip (Egypt Flag + Ali + ID - Exact Match to Image 1) */}
+              {/* Right: User Profile Chip (Egypt Flag + Ali + ID + Add Friend Button) */}
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900/90 border border-slate-700 shadow shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusMessage(lang === 'ar' ? '🤝 تم نسخ رابط دعوة الأصدقاء للغرفة!' : 'Copied room invite link!');
+                    try { navigator.clipboard.writeText(window.location.href); } catch (e) {}
+                  }}
+                  className="w-5 h-5 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center text-[9px] font-black shadow cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'إضافة أصدقاء للغرفة' : 'Invite Friends'}
+                >
+                  👤+
+                </button>
                 <div className="w-6 h-6 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-[10px]">
                   <span>👑</span>
                   {userProfile?.avatar_url && (
@@ -4559,25 +4822,6 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                       <span className="truncate">{msg.text}</span>
                     </div>
                   ))}
-              </div>
-            </div>
-
-            {/* VIP Room Membership Banner (Matching Image 1) */}
-            <div className="w-full px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-900/80 via-teal-900/80 to-cyan-900/80 border border-emerald-400/40 flex items-center justify-between shadow-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setPlayerCoins(prev => prev + 20);
-                  setStatusMessage(lang === 'ar' ? '✨ انضممت إلى الغرفة وحصلت على مكافأة العضوية!' : 'Joined room!');
-                }}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] shadow active:scale-95 transition-all cursor-pointer"
-              >
-                {lang === 'ar' ? 'الانضمام إلى الغرفة' : 'Join Room'}
-              </button>
-              <div className="text-right">
-                <span className="text-[10px] font-bold text-emerald-200 block">
-                  {lang === 'ar' ? 'كن عضوا في الغرفة وتفاعل معا ~' : 'Be a room member and interact ~'}
-                </span>
               </div>
             </div>
 
@@ -5145,6 +5389,26 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </div>
             </div>
 
+            {/* 👤 Add Friend Action Button (إضافة صديق) */}
+            {selectedUserForModeration.id !== userProfile?.id && (
+              <button
+                type="button"
+                onClick={() => handleSendFriendRequest(selectedUserForModeration.id, selectedUserForModeration.name)}
+                className={`w-full py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow cursor-pointer active:scale-98 ${
+                  sentFriendRequests.includes(selectedUserForModeration.id)
+                    ? 'bg-emerald-600/90 text-white border border-emerald-400'
+                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400 shadow-[0_0_15px_rgba(147,51,234,0.3)]'
+                }`}
+              >
+                <span>{sentFriendRequests.includes(selectedUserForModeration.id) ? '✓' : '👤➕'}</span>
+                <span>
+                  {sentFriendRequests.includes(selectedUserForModeration.id)
+                    ? (lang === 'ar' ? 'تم إرسال طلب الصداقة بنجاح' : 'Friend Request Sent')
+                    : (lang === 'ar' ? `إضافة ${selectedUserForModeration.name} كصديق` : `Add ${selectedUserForModeration.name} as Friend`)}
+                </span>
+              </button>
+            )}
+
             {/* If Host or Admin: Moderation Actions! */}
             {canAccessSettings ? (
               <div className="space-y-2 pt-1">
@@ -5645,6 +5909,15 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         @keyframes ludo-dice-spin {
           0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
           100% { transform: rotateX(720deg) rotateY(360deg) rotateZ(180deg); }
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
         }
         .preserve-3d {
           transform-style: preserve-3d;
