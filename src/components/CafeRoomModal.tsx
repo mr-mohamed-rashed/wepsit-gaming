@@ -549,31 +549,47 @@ export default function CafeRoomModal({
     startEntryFlow(config);
   };
 
-  const handleJoinActiveRoom = (room: ActiveTableItem, chosenRole: 'player' | 'spectator') => {
-    if (chosenRole === 'player' && room.currentPlayers >= room.playerCount) {
-      addToast(
-        lang === 'ar'
-          ? 'مقاعد اللاعبين ممتلئة على هذه الطاولة! يمكنك الدخول كمتفرج في مقاعد المايك 🎙️'
-          : 'Player seats are full! You can enter as a spectator 🎙️',
-        'warning'
-      );
-      return;
-    }
+  const handleJoinActiveRoom = (room: ActiveTableItem) => {
+    const isMatchPlaying = room.status === 'in_game';
+    const isFull = room.currentPlayers >= room.playerCount;
+    const canAfford = profile.gold_coins >= room.entryFee;
+
+    // If match is in progress, or table is full, or user balance is less than stake, enter automatically as spectator!
+    const roleToAssign: 'player' | 'spectator' = (isMatchPlaying || isFull || !canAfford) ? 'spectator' : 'player';
 
     const config: CafeRoomConfig = {
       roomId: room.id,
       gameKey,
       roomName: lang === 'ar' ? room.nameAr : room.nameEn,
-      role: chosenRole,
+      role: roleToAssign,
       playerCount: room.playerCount,
-      entryFee: chosenRole === 'spectator' ? 0 : room.entryFee,
-      prizeAmount: chosenRole === 'spectator' ? 0 : room.prizeAmount,
+      entryFee: roleToAssign === 'spectator' ? 0 : room.entryFee,
+      prizeAmount: roleToAssign === 'spectator' ? 0 : room.prizeAmount,
       subType: room.subType,
       isHost: false,
       hostId: room.id,
       hostName: room.hostName,
       hostAvatar: room.hostAvatar,
     };
+
+    if (roleToAssign === 'spectator') {
+      if (isMatchPlaying) {
+        addToast(
+          lang === 'ar'
+            ? 'المباراة جارية حالياً! تم دخولك كمتفرج على المايك حتى تبدأ الجولة القادمة 🎙️'
+            : 'Match in progress! Entering as spectator until next game starts 🎙️',
+          'warning'
+        );
+      } else if (isFull) {
+        addToast(
+          lang === 'ar'
+            ? 'مقاعد اللاعبين ممتلئة! تم دخولك كمتفرج للاستمتاع بالصوتيات والتشجيع 🎙️'
+            : 'Player seats are full! Entering as spectator on mic 🎙️',
+          'warning'
+        );
+      }
+    }
+
     startEntryFlow(config);
   };
 
@@ -701,78 +717,24 @@ export default function CafeRoomModal({
                   />
                 </div>
 
-                {/* 2. Choose Role: Player vs Spectator */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <span>🎭</span>
-                    <span>{lang === 'ar' ? 'دورك في الطاولة:' : 'Your Role:'}</span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setRole('player')}
-                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
-                        role === 'player'
-                          ? 'bg-amber-500/15 border-amber-400 text-white shadow-md shadow-amber-950/40'
-                          : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-xl">⚔️</span>
-                      <div>
-                        <div className="text-xs font-bold text-amber-300">
-                          {lang === 'ar' ? 'دخول كلاعب أساسي' : 'Active Player'}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {lang === 'ar' ? 'تجلس على الطاولة وتلعب بالرهان' : 'Sit at table & play for stakes'}
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setRole('spectator')}
-                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
-                        role === 'spectator'
-                          ? 'bg-purple-500/15 border-purple-400 text-white shadow-md shadow-purple-950/40'
-                          : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-xl">🎙️</span>
-                      <div>
-                        <div className="text-xs font-bold text-purple-300">
-                          {lang === 'ar' ? 'دخول كمتفرج (مايك وتفاعل)' : 'Spectator (Voice & Cheer)'}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {lang === 'ar' ? 'مقاعد المتفرجين وتشجيع وهدايا' : 'Voice seats, cheer & send gifts'}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. Stake / Entry Fee (Free for spectators, gold for players) */}
+                {/* 2. Stake / Entry Fee */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center text-xs">
                     <label className="font-bold text-slate-300 flex items-center gap-1.5">
                       <span>🪙</span>
-                      <span>{lang === 'ar' ? 'رسوم الدخول والرهان:' : 'Entry Fee & Stakes:'}</span>
+                      <span>{lang === 'ar' ? 'رسوم الدخول والرهان على الطاولة:' : 'Table Entry Fee & Stakes:'}</span>
                     </label>
-                    {role === 'spectator' && (
-                      <span className="text-emerald-400 text-[11px] font-bold">
-                        🎉 {lang === 'ar' ? 'دخول المتفرجين مجاني 100%' : 'Free Spectator Entry'}
-                      </span>
-                    )}
                   </div>
 
                   <div className="grid grid-cols-4 gap-2">
                     {[50, 100, 250, 500].map((fee) => {
-                      const isDisabled = role === 'player' && profile.gold_coins < fee;
+                      const isDisabled = profile.gold_coins < fee;
                       const isSelected = entryFee === fee;
                       return (
                         <button
                           key={fee}
                           type="button"
-                          disabled={role === 'player' && isDisabled}
+                          disabled={isDisabled}
                           onClick={() => setEntryFee(fee)}
                           className={`p-2 rounded-xl border transition-all cursor-pointer text-center ${
                             isSelected
@@ -793,7 +755,7 @@ export default function CafeRoomModal({
                   </div>
                   <div className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 mt-2">
                     <span>💡</span>
-                    <span>{lang === 'ar' ? 'يتم تحديد عدد اللاعبين (2 أو 4) وتعديل القواعد بحرية تامة من داخل الغرفة في أي وقت.' : 'Configure player count (2 or 4) and rules freely inside the room anytime.'}</span>
+                    <span>{lang === 'ar' ? 'أنت صاحب ومضيف الغرفة! يمكنك تشغيل المباريات وإدارتها بحرية تامة من الداخل.' : 'You are the Room Host! You can launch matches and control settings freely.'}</span>
                   </div>
                 </div>
 
@@ -804,11 +766,9 @@ export default function CafeRoomModal({
                     onClick={handleCreateRoom}
                     className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-500 text-slate-950 font-black text-sm shadow-[0_0_25px_rgba(245,158,11,0.4)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <span>🚀</span>
+                    <span>👑</span>
                     <span>
-                      {role === 'player'
-                        ? (lang === 'ar' ? `فتح الطاولة وبدء اللعب (${entryFee} 🪙)` : `Open Table & Play (${entryFee} 🪙)`)
-                        : (lang === 'ar' ? 'فتح الطاولة والدخول كمتفرج (مجاناً)' : 'Open Table as Spectator (Free)')}
+                      {lang === 'ar' ? `فتح الغرفة وبدء المجلس (الرهان: ${entryFee} 🪙)` : `Open Room & Start Table (${entryFee} 🪙)`}
                     </span>
                   </button>
                 </div>
@@ -858,47 +818,45 @@ export default function CafeRoomModal({
                           </span>
                         </div>
 
-                        {/* Room Stats: Stake, Players, Spectators */}
+                        {/* Room Stats: Stake, Total People in Room */}
                         <div className="grid grid-cols-3 gap-1.5 bg-slate-900/60 p-2 rounded-xl text-center border border-slate-800/50 text-[11px]">
                           <div>
-                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'الرهان' : 'Stake'}</div>
+                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'رسوم الدخول' : 'Entry Fee'}</div>
                             <div className="font-black text-amber-300">🪙 {room.entryFee}</div>
                           </div>
                           <div>
-                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'اللاعبين' : 'Players'}</div>
-                            <div className={`font-bold ${isFull ? 'text-rose-400' : 'text-emerald-400'}`}>
-                              {room.currentPlayers}/{room.playerCount}
+                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'المتواجدين' : 'In Room'}</div>
+                            <div className="font-bold text-cyan-300">
+                              👥 {room.currentPlayers + room.spectatorsCount}
                             </div>
                           </div>
                           <div>
-                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'المتفرجين' : 'Spectators'}</div>
-                            <div className="font-bold text-purple-400">👁️ {room.spectatorsCount}</div>
+                            <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'طاولة اللعب' : 'Table Seats'}</div>
+                            <div className={`font-bold ${isFull ? 'text-amber-400' : 'text-emerald-400'}`}>
+                              {room.currentPlayers}/{room.playerCount}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Two Clear Action Buttons: Play vs Spectate */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
+                        {/* Single Unified Action Button: Enter Room (دخول الغرفة بدون إجبار) */}
+                        <div className="pt-1">
                           <button
                             type="button"
-                            disabled={isFull}
-                            onClick={() => handleJoinActiveRoom(room, 'player')}
-                            className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                              isFull
-                                ? 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
-                                : 'bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-slate-950 shadow-md font-black'
+                            onClick={() => handleJoinActiveRoom(room)}
+                            className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 ${
+                              room.status === 'in_game' || isFull
+                                ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
+                                : 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
                             }`}
                           >
-                            <span>⚔️</span>
-                            <span>{isFull ? (lang === 'ar' ? 'مكتمل' : 'Full') : (lang === 'ar' ? 'دخول كلاعب' : 'Join as Player')}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleJoinActiveRoom(room, 'spectator')}
-                            className="py-2 px-2.5 rounded-xl text-xs font-bold bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <span>🎙️</span>
-                            <span>{lang === 'ar' ? 'دخول كمتفرج' : 'Spectate'}</span>
+                            <span>{room.status === 'in_game' || isFull ? '🎙️' : '🚪'}</span>
+                            <span>
+                              {room.status === 'in_game'
+                                ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
+                                : isFull
+                                ? (lang === 'ar' ? 'دخول الغرفة (طاولة اللعب ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
+                                : (lang === 'ar' ? `دخول الغرفة (الرهان: ${room.entryFee} 🪙)` : `Enter Room (${room.entryFee} 🪙)`)}
+                            </span>
                           </button>
                         </div>
                       </div>

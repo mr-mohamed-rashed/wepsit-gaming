@@ -3191,7 +3191,7 @@ function LudoApp() {
     }
   };
 
-  // 1. Crystal-Clear Responsive Acrylic SVG Dice Widget (Matches Image 1)
+  // 1. TRUE 3D LUXURY DICE WIDGET (نرد ثلاثي الأبعاد حقيقي مكعب مع 6 أوجه وظلال وفيزياء دحرجة)
   const renderDiceWidget = (playerColor: PlayerColor) => {
     const isTurn = turn === playerColor;
     const isBlue = playerColor === 'blue';
@@ -3199,16 +3199,16 @@ function LudoApp() {
     const val = diceValues[playerColor] || 1;
     const canClick = isTurn && isBlue && gameState === 'waiting_roll' && rollingDicePlayer === null && !winner;
 
-    const pips: Record<number, [number, number][]> = {
-      1: [[50, 50]],
-      2: [[28, 28], [72, 72]],
-      3: [[28, 28], [50, 50], [72, 72]],
-      4: [[28, 28], [72, 28], [28, 72], [72, 72]],
-      5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
-      6: [[28, 28], [72, 28], [28, 50], [72, 50], [28, 72], [72, 72]],
+    // 3D Cube Rotation map to orient the active face with subtle isometric depth
+    const faceRotations: Record<number, string> = {
+      1: 'rotateX(-10deg) rotateY(15deg)',
+      2: 'rotateX(-100deg) rotateY(15deg)',
+      3: 'rotateX(-10deg) rotateY(-75deg)',
+      4: 'rotateX(-10deg) rotateY(105deg)',
+      5: 'rotateX(80deg) rotateY(15deg)',
+      6: 'rotateX(-10deg) rotateY(195deg)',
     };
-    const dots = pips[val] || pips[1];
-    const isOne = val === 1;
+    const restTransform = faceRotations[val] || faceRotations[1];
 
     return (
       <div
@@ -3218,39 +3218,101 @@ function LudoApp() {
             rollDice();
           }
         }}
-        className={`relative w-8 h-8 sm:w-10 sm:h-10 transition-all select-none ${
+        className={`relative w-9 h-9 sm:w-11 sm:h-11 flex items-center justify-center select-none ${
           canClick ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'
-        } ${isRolling ? 'animate-dice-natural-roll shadow-[0_15px_30px_rgba(0,0,0,0.6)] z-30' : ''}`}
-        title={canClick ? (lang === 'ar' ? 'انقر لرمي النرد!' : 'Click to roll dice!') : ''}
+        }`}
+        title={canClick ? (lang === 'ar' ? 'انقر لرمي النرد ثلاثي الأبعاد!' : 'Click to roll 3D dice!') : ''}
+        style={{ perspective: '350px' }}
       >
-        {/* Turn pointer arrow ▼ above the dice (Matching Image 1!) */}
+        {/* Turn pointer arrow ▼ above the dice */}
         {isTurn && !winner && (
           <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-emerald-300 text-xs sm:text-sm font-black animate-bounce pointer-events-none z-30 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
             ▼
           </div>
         )}
 
-        {/* Glossy White Acrylic Dice Box */}
+        {/* Ambient Floor Shadow under 3D Cube */}
         <div
-          className={`w-full h-full rounded-xl bg-white border-2 ${
-            isTurn ? 'border-amber-400 ring-2 ring-amber-300 shadow-[0_0_14px_rgba(251,191,36,0.9)]' : 'border-slate-300 shadow-md'
-          } p-1 flex items-center justify-center relative overflow-hidden`}
+          className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-7 sm:w-8 h-2 rounded-full bg-black/45 blur-[2px] pointer-events-none transition-all duration-300 ${
+            isRolling ? 'scale-50 opacity-25' : 'scale-100 opacity-60'
+          }`}
+        />
+
+        {/* 3D CUBE (32px x 32px with 16px translateZ) */}
+        <div
+          className={`w-[32px] h-[32px] relative transition-transform duration-500 ease-out ${
+            isRolling ? 'animate-dice-3d-roll' : ''
+          }`}
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: isRolling ? undefined : restTransform,
+          }}
         >
-          <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
-            {/* Sheen */}
-            <path d="M 10 10 Q 50 2 90 10 Q 90 35 10 35 Z" fill="rgba(255,255,255,0.8)" />
-            {dots.map(([cx, cy], i) => (
-              <circle
-                key={i}
-                cx={cx}
-                cy={cy}
-                r={isOne ? 18 : 11}
-                fill={isOne ? '#e11d48' : '#0f172a'}
-                filter="drop-shadow(0px 1px 1.5px rgba(0,0,0,0.4))"
-              />
+          {/* FACE 1 (Front: 1 Large Red Sunken Pip) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] flex items-center justify-center"
+            style={{ transform: 'rotateY(0deg) translateZ(16px)' }}
+          >
+            <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-rose-500 via-rose-600 to-rose-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0.5px_1px_rgba(255,255,255,0.7)]" />
+          </div>
+
+          {/* FACE 6 (Back: 6 Dark Pips) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1 grid grid-cols-2 grid-rows-3 justify-items-center items-center"
+            style={{ transform: 'rotateY(180deg) translateZ(16px)', filter: 'brightness(0.92)' }}
+          >
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
             ))}
-          </svg>
+          </div>
+
+          {/* FACE 2 (Top: 2 Diagonal Pips) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1.5 flex flex-col justify-between"
+            style={{ transform: 'rotateX(90deg) translateZ(16px)', filter: 'brightness(1.05)' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-start" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-end" />
+          </div>
+
+          {/* FACE 5 (Bottom: 5 Pips) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 border border-slate-300/90 shadow-inner p-1 grid grid-cols-3 grid-rows-3 justify-items-center items-center"
+            style={{ transform: 'rotateX(-90deg) translateZ(16px)', filter: 'brightness(0.85)' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-2 row-start-2" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+          </div>
+
+          {/* FACE 3 (Right: 3 Diagonal Pips) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1.5 flex flex-col justify-between"
+            style={{ transform: 'rotateY(90deg) translateZ(16px)', filter: 'brightness(0.92)' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-start" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-center" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-end" />
+          </div>
+
+          {/* FACE 4 (Left: 4 Corner Pips) */}
+          <div
+            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 border border-slate-300/90 shadow-inner p-1.5 grid grid-cols-2 grid-rows-2 justify-items-center items-center"
+            style={{ transform: 'rotateY(-90deg) translateZ(16px)', filter: 'brightness(0.88)' }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
+          </div>
         </div>
+
+        {/* Turn Active Aura Glow */}
+        {isTurn && (
+          <div className="absolute -inset-1 rounded-xl border-2 border-amber-400 shadow-[0_0_16px_rgba(251,191,36,0.85)] pointer-events-none animate-pulse" />
+        )}
       </div>
     );
   };
@@ -3847,29 +3909,29 @@ function LudoApp() {
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      {/* Unified Single Action Button: Enter Room */}
+                      <div className="pt-1">
                         <button
                           type="button"
-                          disabled={isFull}
-                          onClick={() => joinRoomFromList(room, 'player')}
-                          className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 ${
-                            isFull
-                              ? 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-slate-950 border border-emerald-400 cursor-pointer shadow active:scale-95'
+                          onClick={() => {
+                            const isMatchPlaying = room.status === 'in_game';
+                            const roleToAssign = (isMatchPlaying || isFull) ? 'spectator' : 'player';
+                            joinRoomFromList(room, roleToAssign);
+                          }}
+                          className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow active:scale-98 ${
+                            room.status === 'in_game' || isFull
+                              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
+                              : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
                           }`}
                         >
-                          <span>⚔️</span>
-                          <span>{isFull ? (lang === 'ar' ? 'ممتلئ' : 'Full') : (lang === 'ar' ? 'دخول كلاعب' : 'Join Player')}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => joinRoomFromList(room, 'spectator')}
-                          className="py-2 px-2.5 rounded-xl text-xs font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 cursor-pointer shadow active:scale-95 transition-all flex items-center justify-center gap-1"
-                        >
-                          <span>🎙️</span>
-                          <span>{lang === 'ar' ? 'دخول كمتفرج' : 'Join Spectator'}</span>
+                          <span>{room.status === 'in_game' || isFull ? '🎙️' : '🚪'}</span>
+                          <span>
+                            {room.status === 'in_game'
+                              ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
+                              : isFull
+                              ? (lang === 'ar' ? 'دخول الغرفة (المقاعد ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
+                              : (lang === 'ar' ? `دخول الغرفة (الرهان: ${room.entryFee} 🪙)` : `Enter Room (${room.entryFee} 🪙)`)}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -5867,28 +5929,32 @@ function LudoApp() {
           100% { opacity: 0; transform: scale(1.8) translate(-50%, -50%) rotate(540deg); }
         }
 
-        @keyframes natural-dice-roll {
+        @keyframes dice-3d-roll {
           0% {
-            transform: perspective(600px) translateY(0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
+            transform: translateY(0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
           }
           20% {
-            transform: perspective(600px) translateY(-30px) rotateX(240deg) rotateY(180deg) rotateZ(90deg) scale(1.22);
+            transform: translateY(-24px) rotateX(240deg) rotateY(180deg) rotateZ(90deg) scale(1.2);
           }
           45% {
-            transform: perspective(600px) translateY(-16px) rotateX(480deg) rotateY(360deg) rotateZ(210deg) scale(1.12);
+            transform: translateY(-15px) rotateX(540deg) rotateY(360deg) rotateZ(180deg) scale(1.12);
           }
           70% {
-            transform: perspective(600px) translateY(-5px) rotateX(680deg) rotateY(540deg) rotateZ(320deg) scale(1.04);
+            transform: translateY(-5px) rotateX(840deg) rotateY(540deg) rotateZ(270deg) scale(1.04);
           }
           88% {
-            transform: perspective(600px) translateY(3px) rotateX(720deg) rotateY(720deg) rotateZ(360deg) scale(0.95);
+            transform: translateY(2px) rotateX(1020deg) rotateY(700deg) rotateZ(340deg) scale(0.97);
           }
           100% {
-            transform: perspective(600px) translateY(0) rotateX(720deg) rotateY(720deg) rotateZ(360deg) scale(1);
+            transform: translateY(0) rotateX(1080deg) rotateY(720deg) rotateZ(360deg) scale(1);
           }
         }
+        .animate-dice-3d-roll {
+          animation: dice-3d-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+          transform-style: preserve-3d;
+        }
         .animate-dice-natural-roll {
-          animation: natural-dice-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+          animation: dice-3d-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
           transform-style: preserve-3d;
         }
         @keyframes poke-left {
