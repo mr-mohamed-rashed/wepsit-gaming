@@ -466,22 +466,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
       return;
     }
 
-    const matchingSessions = activeSessions.filter((s) => s.gameId === gameId);
-
-    if (matchingSessions.length === 0) {
-      addToast(lang === 'ar' ? 'لا توجد جلسات لعب نشطة حالياً. تم إنشاء غرفة جديدة ونشرها في الشات الجماعي!' : 'No active rooms. Created a new room and posted to group lobby!', 'success');
-      handleCreateSession(gameId);
-      launchGameMode(gameId);
-    } else if (matchingSessions.length === 1) {
-      const session = matchingSessions[0];
-      addToast(lang === 'ar' ? `جاري الانضمام تلقائياً إلى جلسة [${session.hostName}]... 🎮` : `Auto-joining session hosted by [${session.hostName}]... 🎮`, 'success');
-      setActiveSessions((prev) => prev.filter((s) => s.id !== session.id));
-      launchGameMode(gameId);
-    } else {
-      setSelectorGameId(gameId);
-      setSelectorSessions(matchingSessions);
-      setShowSessionSelectorModal(true);
-    }
+    // Open game rooms / create room modal directly
+    launchGameMode(gameId);
   };
 
   const launchGameMode = (gameId: string) => {
@@ -1036,7 +1022,12 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
               {gamesList.map((game) => (
                 <div
                   key={game.id}
-                  className="bg-black/40 backdrop-blur-md border border-cyan-500/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.1)] flex flex-col group hover:border-cyan-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:-translate-y-1 transition-all duration-300 relative z-10"
+                  onClick={() => {
+                    if (game.isReady) handlePlayGame(game.id);
+                  }}
+                  className={`bg-black/40 backdrop-blur-md border border-cyan-500/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.1)] flex flex-col group hover:border-cyan-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:-translate-y-1 transition-all duration-300 relative z-10 ${
+                    game.isReady ? 'cursor-pointer' : 'opacity-70'
+                  }`}
                 >
                   <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
                     <img
@@ -1364,7 +1355,11 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                         const winRule = ludoRoomConfig?.winRule || 'all';
                         const stake = cafeRoomConfig?.entryFee || ludoRoomConfig?.entryFee || 50;
                         const roomName = encodeURIComponent(cafeRoomConfig?.roomName || ludoRoomConfig?.roomName || 'Ludo Room');
-                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomName=${roomName}`;
+                        const isHost = cafeRoomConfig?.isHost !== undefined ? cafeRoomConfig.isHost : true;
+                        const hostId = encodeURIComponent(cafeRoomConfig?.hostId || profile.id);
+                        const hostName = encodeURIComponent(cafeRoomConfig?.hostName || profile.username);
+                        const hostAvatar = encodeURIComponent(cafeRoomConfig?.hostAvatar || profile.avatar_url || '');
+                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}`;
                       }
 
                       // Handle other 5 Cafe Social Games (Domino, Backgammon, Chess, Uno, Estimation)

@@ -778,6 +778,10 @@ function LudoApp() {
   const queryWinRule = searchParams.get('winRule');
   const queryStake = searchParams.get('stake');
   const queryRoomName = searchParams.get('roomName');
+  const queryIsHost = searchParams.get('isHost') !== 'false';
+  const queryHostId = searchParams.get('hostId') || (queryIsHost ? (queryUserId || '12842582') : 'host-1');
+  const queryHostName = searchParams.get('hostName') || (queryIsHost ? (queryUsername || 'Ali') : (lang === 'ar' ? 'صاحب الغرفة' : 'Room Host'));
+  const queryHostAvatar = searchParams.get('hostAvatar') || (queryIsHost ? (queryAvatar || '/laugh_emote.png') : 'https://api.dicebear.com/7.x/bottts/svg?seed=Host');
 
   const initialPlayerCount = (queryPlayers === '2' ? 2 : 4) as 2 | 3 | 4;
   const initialPieceCount = queryPieces === '2' ? 2 : 4;
@@ -804,16 +808,36 @@ function LudoApp() {
   // --- Voice Mic & Local Device Music Player State (تشغيل أغاني من جهازه) ---
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const musicFileInputRef = useRef<HTMLInputElement | null>(null);
+  const musicModalRef = useRef<HTMLDivElement | null>(null);
   const [musicTrackName, setMusicTrackName] = useState<string | null>(null);
   const [isPlayingMusic, setIsPlayingMusic] = useState<boolean>(false);
-  const [musicVolume, setMusicVolume] = useState<number>(0.6);
+  const [musicVolume, setMusicVolume] = useState<number>(0.7);
+  const [musicCurrentTime, setMusicCurrentTime] = useState<number>(0);
+  const [musicDuration, setMusicDuration] = useState<number>(0);
+  const [isMusicModalOpen, setIsMusicModalOpen] = useState<boolean>(false);
+  const [isMusicMinimized, setIsMusicMinimized] = useState<boolean>(false);
   const [isMicOn, setIsMicOn] = useState<boolean>(true);
 
-  // --- Room Authority (Host & Deputy) ---
-  const [roomHostId, setRoomHostId] = useState<string>(queryUserId || '12842582');
-  const [roomHostName, setRoomHostName] = useState<string>(queryUsername || 'Ali');
-  const [roomHostAvatar, setRoomHostAvatar] = useState<string>(queryAvatar || '/laugh_emote.png');
+  // --- Room Authority, Moderation & Permissions (Host & Deputy) ---
+  const [roomHostId, setRoomHostId] = useState<string>(queryHostId);
+  const [roomHostName, setRoomHostName] = useState<string>(queryHostName);
+  const [roomHostAvatar, setRoomHostAvatar] = useState<string>(queryHostAvatar);
   const [roomDeputyId, setRoomDeputyId] = useState<string | null>(null);
+  const [moderatorIds, setModeratorIds] = useState<string[]>([]);
+  const [mutedUserIds, setMutedUserIds] = useState<string[]>([]);
+  const [bannedUserIds, setBannedUserIds] = useState<string[]>([]);
+  const [roomMicMode, setRoomMicMode] = useState<'all' | 'admins_only'>('all');
+  const [selectedUserForModeration, setSelectedUserForModeration] = useState<{
+    id: string;
+    name: string;
+    avatar: string;
+    seatColor?: PlayerColor;
+    isSpectator?: boolean;
+    isBot?: boolean;
+    isHost?: boolean;
+    isDeputy?: boolean;
+    isMuted?: boolean;
+  } | null>(null);
 
   // 4 Table Seats (Blue, Green, Red, Yellow)
   interface RoomSeatUser {
@@ -823,6 +847,7 @@ function LudoApp() {
     isBot: boolean;
     isHost?: boolean;
     isDeputy?: boolean;
+    isMuted?: boolean;
   }
 
   const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>({
@@ -831,8 +856,9 @@ function LudoApp() {
       name: queryUsername || 'Ali',
       avatar: queryAvatar || '/laugh_emote.png',
       isBot: false,
-      isHost: true,
+      isHost: queryIsHost,
       isDeputy: false,
+      isMuted: false,
     },
     green: null,
     red: null,
@@ -840,10 +866,10 @@ function LudoApp() {
   });
 
   // Spectator Voice Seats (6 seats)
-  const [spectatorSeats, setSpectatorSeats] = useState<Array<{ id: string; name: string; avatar: string; isMicOn: boolean }>>([
-    { id: 'spec-1', name: 'البرنس حامد', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hamed', isMicOn: true },
-    { id: 'spec-2', name: 'حنين نورتي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen', isMicOn: false },
-    { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true },
+  const [spectatorSeats, setSpectatorSeats] = useState<Array<{ id: string; name: string; avatar: string; isMicOn: boolean; isDeputy?: boolean; isMuted?: boolean }>>([
+    { id: 'spec-1', name: 'البرنس حامد', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hamed', isMicOn: true, isMuted: false },
+    { id: 'spec-2', name: 'حنين نورتي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen', isMicOn: false, isMuted: false },
+    { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true, isMuted: false },
   ]);
 
   // Anti-Refresh & Anti-Swipe-Down Protection inside the game
@@ -897,18 +923,34 @@ function LudoApp() {
     };
   }, []);
 
+  const formatMusicTime = (secs: number) => {
+    if (isNaN(secs) || secs < 0) return '00:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   const handleMusicFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       try {
         const url = URL.createObjectURL(file);
-        setMusicTrackName(file.name.replace(/\.[^/.]+$/, ''));
+        const name = file.name.replace(/\.[^/.]+$/, '');
+        setMusicTrackName(name);
+        setIsMusicMinimized(true);
         if (audioRef.current) {
           audioRef.current.src = url;
           audioRef.current.volume = musicVolume;
           audioRef.current.play()
-            .then(() => setIsPlayingMusic(true))
-            .catch(err => console.log('Audio autoplay prevented:', err));
+            .then(() => {
+              setIsPlayingMusic(true);
+              setIsMusicModalOpen(true);
+            })
+            .catch(err => {
+              console.log('Audio autoplay prevented:', err);
+              setIsPlayingMusic(false);
+              setIsMusicModalOpen(true);
+            });
         }
       } catch (err) {
         console.error('Failed to load music file:', err);
@@ -940,6 +982,124 @@ function LudoApp() {
 
   const toggleMic = () => {
     setIsMicOn(prev => !prev);
+  };
+
+  // Listen to audio element timeupdate and duration
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleTimeUpdate = () => setMusicCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => setMusicDuration(audio.duration || 0);
+    const handleEnded = () => {
+      setIsPlayingMusic(false);
+      setMusicCurrentTime(0);
+    };
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, []);
+
+  // Auto-minimize music player when clicking outside anywhere on screen
+  useEffect(() => {
+    if (!isMusicModalOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (musicModalRef.current && !musicModalRef.current.contains(e.target as Node)) {
+        setIsMusicModalOpen(false);
+        setIsMusicMinimized(true);
+      }
+    };
+    const timer = setTimeout(() => {
+      window.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('touchstart', handleClickOutside);
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isMusicModalOpen]);
+
+  // User Click Handler (Opens Moderation for Admins, Profile for users)
+  const handleUserClick = (target: {
+    id: string;
+    name: string;
+    avatar: string;
+    seatColor?: PlayerColor;
+    isSpectator?: boolean;
+    isBot?: boolean;
+    isHost?: boolean;
+    isDeputy?: boolean;
+    isMuted?: boolean;
+  }) => {
+    if (target.id === userProfile?.id) {
+      toggleMic();
+      return;
+    }
+    const isTargetDeputy = moderatorIds.includes(target.id) || target.id === roomDeputyId || target.isDeputy;
+    const isTargetMuted = mutedUserIds.includes(target.id) || target.isMuted;
+    setSelectedUserForModeration({
+      ...target,
+      isDeputy: isTargetDeputy,
+      isMuted: isTargetMuted,
+      isHost: target.id === roomHostId || target.isHost,
+    });
+  };
+
+  const handleToggleMuteUser = (userId: string) => {
+    setMutedUserIds(prev => {
+      const isAlreadyMuted = prev.includes(userId);
+      const next = isAlreadyMuted ? prev.filter(id => id !== userId) : [...prev, userId];
+      const targetName = selectedUserForModeration?.name || 'المستخدم';
+      addChatMessage(
+        isAlreadyMuted
+          ? (lang === 'ar' ? `🎙️ تم إلغاء كتم صوت ${targetName}` : `Unmuted ${targetName}`)
+          : (lang === 'ar' ? `🔇 تم كتم صوت ${targetName} بواسطة المشرف` : `Muted ${targetName} by admin`),
+        'system'
+      );
+      return next;
+    });
+    setSelectedUserForModeration(null);
+  };
+
+  const handleToggleAdminUser = (userId: string) => {
+    setModeratorIds(prev => {
+      const isAlreadyAdmin = prev.includes(userId);
+      const next = isAlreadyAdmin ? prev.filter(id => id !== userId) : [...prev, userId];
+      const targetName = selectedUserForModeration?.name || 'المستخدم';
+      addChatMessage(
+        isAlreadyAdmin
+          ? (lang === 'ar' ? `تم سحب رتبة الإشراف من ${targetName}` : `Revoked admin from ${targetName}`)
+          : (lang === 'ar' ? `👑 تم منح رتبة مشرف لـ ${targetName}!` : `Granted admin to ${targetName}!`),
+        'system'
+      );
+      return next;
+    });
+    setSelectedUserForModeration(null);
+  };
+
+  const handleKickUser = (userId: string) => {
+    const targetName = selectedUserForModeration?.name || 'المستخدم';
+    if (selectedUserForModeration?.seatColor) {
+      setTableSeats(prev => ({
+        ...prev,
+        [selectedUserForModeration.seatColor!]: null,
+      }));
+    }
+    setSpectatorSeats(prev => prev.filter(s => s.id !== userId));
+    addChatMessage(lang === 'ar' ? `🚪 تم طرد ${targetName} من الغرفة بواسطة المشرف` : `Kicked ${targetName} from room`, 'system');
+    setSelectedUserForModeration(null);
+  };
+
+  const handleBlockUser = (userId: string) => {
+    const targetName = selectedUserForModeration?.name || 'المستخدم';
+    setBannedUserIds(prev => [...prev, userId]);
+    handleKickUser(userId);
+    addChatMessage(lang === 'ar' ? `⛔ تم حظر ${targetName} ومنعه من الغرفة` : `Banned ${targetName} from room`, 'system');
   };
 
   // --- Persistent Head-to-Head & Coins ---
@@ -1227,8 +1387,9 @@ function LudoApp() {
     returnToRoom();
   };
 
-  const isHost = userProfile.id === roomHostId;
-  const isDeputy = userProfile.id === roomDeputyId;
+  const isHost = userProfile?.id === roomHostId;
+  const isDeputy = userProfile?.id === roomDeputyId || (userProfile?.id ? moderatorIds.includes(userProfile.id) : false);
+  const canAccessSettings = isHost || isDeputy;
   const canControlMatch = isHost || isDeputy;
 
   const joinRoomFromList = (room: PublicLudoRoom, role: 'player' | 'spectator') => {
@@ -1420,6 +1581,13 @@ function LudoApp() {
         : (lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.')
     );
   };
+
+  // Auto start match when entering room directly with autoStart=true
+  useEffect(() => {
+    if (queryAutoStart) {
+      startMatchFromRoom();
+    }
+  }, []);
 
   // Sound Synthesizers (Web Audio API)
   const getAudioContext = () => {
@@ -3020,10 +3188,18 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (!isBlue) setSelectedGiftTarget(baseColor);
+                    const seatUser = tableSeats[baseColor];
+                    handleUserClick({
+                      id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                      name: seatUser?.name || dispName,
+                      avatar: seatUser?.avatar || avatarImg,
+                      seatColor: baseColor,
+                      isBot,
+                      isDeputy: seatUser?.isDeputy,
+                    });
                   }}
-                  className={`flex items-center gap-1.5 min-w-0 ${!isBlue ? 'cursor-pointer hover:opacity-90 active:scale-95' : ''}`}
-                  title={!isBlue ? (lang === 'ar' ? 'انقر لإرسال هدية أو مقلب 🎁' : 'Click to send gift 🎁') : ''}
+                  className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
+                  title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
                 >
                   <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
                     <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
@@ -3037,10 +3213,12 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                         }}
                       />
                     )}
-                    {!isBlue && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-[8px] flex items-center justify-center shadow z-10">
-                        🎁
-                      </div>
+                    {/* Mic indicator */}
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
+                      {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                    </div>
+                    {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
+                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -3077,10 +3255,18 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (!isBlue) setSelectedGiftTarget(baseColor);
+                    const seatUser = tableSeats[baseColor];
+                    handleUserClick({
+                      id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                      name: seatUser?.name || dispName,
+                      avatar: seatUser?.avatar || avatarImg,
+                      seatColor: baseColor,
+                      isBot,
+                      isDeputy: seatUser?.isDeputy,
+                    });
                   }}
-                  className={`flex items-center gap-1.5 min-w-0 ${!isBlue ? 'cursor-pointer hover:opacity-90 active:scale-95' : ''}`}
-                  title={!isBlue ? (lang === 'ar' ? 'انقر لإرسال هدية أو مقلب 🎁' : 'Click to send gift 🎁') : ''}
+                  className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
+                  title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
                 >
                   <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shrink-0 shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base`}>
                     <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
@@ -3094,10 +3280,12 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                         }}
                       />
                     )}
-                    {!isBlue && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-[8px] flex items-center justify-center shadow z-10">
-                        🎁
-                      </div>
+                    {/* Mic indicator */}
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
+                      {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                    </div>
+                    {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
+                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -3633,15 +3821,21 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                   <button
                     type="button"
-                    onClick={toggleMusic}
+                    onClick={() => {
+                      if (!musicTrackName) {
+                        musicFileInputRef.current?.click();
+                      } else {
+                        setIsMusicModalOpen(true);
+                      }
+                    }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow ${
                       isPlayingMusic
                         ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white animate-pulse border border-emerald-400'
                         : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40'
                     }`}
-                    title={lang === 'ar' ? 'تشغيل أو إيقاف الموسيقى' : 'Play / Pause music'}
+                    title={lang === 'ar' ? 'تشغيل أو فتح مشغل الموسيقى' : 'Play / Open music player'}
                   >
-                    <span>{isPlayingMusic ? '⏸️' : '🎵'}</span>
+                    <span>{isPlayingMusic ? '💿' : '🎵'}</span>
                     <span className="truncate max-w-[130px]">
                       {musicTrackName || (lang === 'ar' ? 'أغاني من جهازي' : 'Local Music')}
                     </span>
@@ -3744,14 +3938,36 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
                         {seat ? (
                           /* Occupied Seat */
-                          <div className="flex items-center gap-2 py-0.5">
-                            <img
-                              src={seat.avatar}
-                              alt={seat.name}
-                              className="w-9 h-9 rounded-full border-2 border-white/30 bg-slate-900 object-cover"
-                            />
+                          <div
+                            onClick={() => handleUserClick({
+                              id: seat.id,
+                              name: seat.name,
+                              avatar: seat.avatar,
+                              seatColor: color,
+                              isBot: seat.isBot,
+                              isHost: seat.isHost,
+                              isDeputy: seat.isDeputy,
+                            })}
+                            className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-slate-800/50 rounded-xl p-1 transition-all"
+                            title="إدارة العضو أو كتمه/ترقيته"
+                          >
+                            <div className="relative">
+                              <img
+                                src={seat.avatar}
+                                alt={seat.name}
+                                className="w-9 h-9 rounded-full border-2 border-white/30 bg-slate-900 object-cover"
+                              />
+                              <span className="absolute -bottom-1 -right-1 text-[9px] bg-slate-900 rounded-full px-0.5 border border-slate-700">
+                                {mutedUserIds.includes(seat.id) ? '🔇' : '🎙️'}
+                              </span>
+                              {(moderatorIds.includes(seat.id) || seat.isDeputy) && (
+                                <span className="absolute -top-1 -right-1 text-[9px]">⭐</span>
+                              )}
+                            </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-xs font-black text-white truncate">{seat.name}</div>
+                              <div className="text-xs font-black text-white truncate flex items-center gap-1">
+                                <span>{seat.name}</span>
+                              </div>
                               <div className="text-[9px] text-emerald-400 font-bold flex items-center gap-1">
                                 <span>●</span>
                                 <span>{seat.isBot ? 'روبوت ذكي 🤖' : 'لاعب جاهز ⚔️'}</span>
@@ -3837,7 +4053,16 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   {spectatorSeats.map((spec) => (
                     <div
                       key={spec.id}
-                      className="flex flex-col items-center gap-1 shrink-0 p-1.5 bg-slate-900/60 border border-purple-500/20 rounded-xl min-w-[70px]"
+                      onClick={() => handleUserClick({
+                        id: spec.id,
+                        name: spec.name,
+                        avatar: spec.avatar,
+                        isSpectator: true,
+                        isDeputy: moderatorIds.includes(spec.id),
+                        isMuted: mutedUserIds.includes(spec.id),
+                      })}
+                      className="flex flex-col items-center gap-1 shrink-0 p-1.5 bg-slate-900/60 border border-purple-500/20 rounded-xl min-w-[70px] cursor-pointer hover:border-purple-400/50 hover:bg-purple-950/20 transition-all"
+                      title="إدارة العضو أو كتمه/ترقيته"
                     >
                       <div className="relative">
                         <img
@@ -3846,8 +4071,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                           className="w-8 h-8 rounded-full border border-purple-400/50 bg-slate-950"
                         />
                         <span className="absolute -bottom-1 -right-1 text-[10px]">
-                          {spec.isMicOn ? '🎙️' : '🔇'}
+                          {mutedUserIds.includes(spec.id) ? '🔇' : (spec.isMicOn ? '🎙️' : '🔇')}
                         </span>
+                        {moderatorIds.includes(spec.id) && (
+                          <span className="absolute -top-1 -right-1 text-[10px]">⭐</span>
+                        )}
                       </div>
                       <span className="text-[9px] text-slate-300 font-bold truncate max-w-[65px]">
                         {spec.name}
@@ -3955,7 +4183,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
           <div className="w-full max-w-lg flex flex-col gap-1.5 z-20 shrink-0">
             {/* Header: Exit, Trophy, Spectator Seats, Profile */}
             <div className="w-full flex items-center justify-between gap-1.5">
-              {/* Left Controls: Power & Trophy */}
+              {/* Left Controls: Power, Trophy, Room Lounge, & Music */}
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
@@ -3981,6 +4209,27 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 >
                   🏰
                 </button>
+                {/* 🎵 Music Button in Game Header */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!musicTrackName) {
+                      musicFileInputRef.current?.click();
+                    } else {
+                      setIsMusicModalOpen(true);
+                    }
+                  }}
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs shadow cursor-pointer active:scale-90 transition-all ${
+                    isPlayingMusic
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400 text-white animate-pulse'
+                      : musicTrackName
+                      ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                      : 'bg-slate-900/80 border-slate-700/80 hover:border-amber-400 text-slate-300'
+                  }`}
+                  title={lang === 'ar' ? 'مشغل الأغاني الأسطواني 🎵' : 'Vinyl Music Player 🎵'}
+                >
+                  🎵
+                </button>
               </div>
 
               {/* Spectator / Voice Seats Bar (المقاعد للاعبين والمتفرجين) */}
@@ -3993,7 +4242,13 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 {/* User Spectator Seat (when entering as spectator) */}
                 {userRole === 'spectator' && (
                   <div
-                    className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-emerald-400 p-0.5 shadow-[0_0_10px_rgba(16,185,129,0.8)] shrink-0 bg-slate-900 ring-2 ring-emerald-400/50"
+                    onClick={() => handleUserClick({
+                      id: userProfile?.id || '12842582',
+                      name: userProfile?.username || 'Ali',
+                      avatar: userProfile?.avatar_url || '/laugh_emote.png',
+                      isSpectator: true,
+                    })}
+                    className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-emerald-400 p-0.5 shadow-[0_0_10px_rgba(16,185,129,0.8)] shrink-0 bg-slate-900 ring-2 ring-emerald-400/50 cursor-pointer"
                     title={`${userProfile?.username || 'Ali'} (أنت على المايك)`}
                   >
                     {userProfile?.avatar_url ? (
@@ -4027,26 +4282,44 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
 
                 {/* Seated Spectator 1: Al-Sahir */}
                 <div
-                  onClick={() => setSelectedGiftTarget('red')}
-                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer"
-                  title="الساحر (انقر لإرسال هدية)"
+                  onClick={() => handleUserClick({
+                    id: 'spec-sahir',
+                    name: 'الساحر',
+                    avatar: '/laugh_emote.png',
+                    isSpectator: true,
+                    isBot: false,
+                  })}
+                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
+                  title="الساحر (انقر للإشراف / الملف)"
                 >
                   <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
-                  <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-rose-600 border border-white text-[7px] flex items-center justify-center">
-                    🎙️
+                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center`}>
+                    {mutedUserIds.includes('spec-sahir') ? '🔇' : '🎙️'}
                   </div>
+                  {moderatorIds.includes('spec-sahir') && (
+                    <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                  )}
                 </div>
 
                 {/* Seated Spectator 2: Mahmoud */}
                 <div
-                  onClick={() => setSelectedGiftTarget('yellow')}
-                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer"
-                  title="محمود (انقر لإرسال هدية)"
+                  onClick={() => handleUserClick({
+                    id: 'spec-mahmoud',
+                    name: 'محمود',
+                    avatar: '/kaizen_emoji_pack.png',
+                    isSpectator: true,
+                    isBot: false,
+                  })}
+                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
+                  title="محمود (انقر للإشراف / الملف)"
                 >
                   <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
-                  <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-600 border border-white text-[7px] flex items-center justify-center">
-                    🎙️
+                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center`}>
+                    {mutedUserIds.includes('spec-mahmoud') ? '🔇' : '🎙️'}
                   </div>
+                  {moderatorIds.includes('spec-mahmoud') && (
+                    <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                  )}
                 </div>
 
                 {/* Locked VIP Seat */}
@@ -4109,15 +4382,17 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 {statusMessage}
               </div>
 
-              {/* Settings Gear */}
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(true)}
-                className="w-7 h-7 rounded-full bg-slate-900/80 border border-slate-700/80 hover:border-amber-400 flex items-center justify-center text-xs text-slate-300 transition-colors shadow cursor-pointer active:scale-90"
-                title={lang === 'ar' ? 'إعدادات الجولة' : 'Settings'}
-              >
-                ⚙️
-              </button>
+              {/* Settings Gear - ONLY FOR HOST & DEPUTIES / ADMINS */}
+              {canAccessSettings && (
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(true)}
+                  className="w-7 h-7 rounded-full bg-slate-900/80 border border-amber-500/60 hover:border-amber-400 flex items-center justify-center text-xs text-amber-300 transition-colors shadow cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'إعدادات الغرفة (للمشرفين) ⚙️' : 'Room Settings (Admins) ⚙️'}
+                >
+                  ⚙️
+                </button>
+              )}
             </div>
           </div>
 
@@ -4659,12 +4934,375 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         </div>
       )}
 
-      {/* ⚙️ SETTINGS MODAL */}
-      {showSettingsModal && (
+      {/* 👑 USER MODERATION & PROFILE MODAL */}
+      {selectedUserForModeration && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-sm bg-slate-950 border border-slate-700 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+          <div className="w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black border-2 border-amber-500/50 rounded-3xl p-5 shadow-[0_0_50px_rgba(251,191,36,0.3)] flex flex-col gap-4 text-slate-100">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <span className="text-sm font-black text-amber-300 flex items-center gap-1.5">
+                <span>{canAccessSettings ? '👑 لوحة تحكم المشرف' : '👤 الملف الشخصي'}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedUserForModeration(null)}
+                className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold transition-all cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Target User Info */}
+            <div className="flex items-center gap-3 bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+              <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-amber-400 bg-slate-800 shrink-0">
+                <img
+                  src={selectedUserForModeration.avatar}
+                  alt={selectedUserForModeration.name}
+                  className="w-full h-full object-cover"
+                />
+                {selectedUserForModeration.isMuted && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-xs">
+                    🔇
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-black text-white truncate flex items-center gap-1">
+                  <span>{selectedUserForModeration.name}</span>
+                  {selectedUserForModeration.isHost && (
+                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-400/40">
+                      👑 المالك
+                    </span>
+                  )}
+                  {selectedUserForModeration.isDeputy && (
+                    <span className="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded font-black border border-cyan-400/40">
+                      ⭐ مشرف
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                  <span>
+                    {selectedUserForModeration.isSpectator ? '🎙️ متفرج على المايك' : '⚔️ لاعب على الطاولة'}
+                  </span>
+                  <span>●</span>
+                  <span className={selectedUserForModeration.isMuted ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                    {selectedUserForModeration.isMuted ? '🔇 مكتوم الصوت' : '🎙️ المايك نشط'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* If Host or Admin: Moderation Actions! */}
+            {canAccessSettings ? (
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-bold text-amber-400 flex items-center gap-1">
+                  <span>⚡</span>
+                  <span>{lang === 'ar' ? 'إجراءات الإشراف على العضو:' : 'Moderator Actions:'}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {/* 1. Mute / Unmute */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleMuteUser(selectedUserForModeration.id)}
+                    className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer ${
+                      selectedUserForModeration.isMuted
+                        ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300 hover:bg-emerald-900/80'
+                        : 'bg-rose-950/60 border-rose-600 text-rose-300 hover:bg-rose-900/80'
+                    }`}
+                  >
+                    <span className="text-base">{selectedUserForModeration.isMuted ? '🎙️' : '🔇'}</span>
+                    <span>{selectedUserForModeration.isMuted ? 'إلغاء الكتم' : 'كتم المايك'}</span>
+                  </button>
+
+                  {/* 2. Promote to Admin / Revoke */}
+                  {!selectedUserForModeration.isHost && (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAdminUser(selectedUserForModeration.id)}
+                      className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer ${
+                        selectedUserForModeration.isDeputy
+                          ? 'bg-amber-950/60 border-amber-600 text-amber-300 hover:bg-amber-900/80'
+                          : 'bg-cyan-950/60 border-cyan-600 text-cyan-300 hover:bg-cyan-900/80'
+                      }`}
+                    >
+                      <span className="text-base">{selectedUserForModeration.isDeputy ? '⭐' : '👑'}</span>
+                      <span>{selectedUserForModeration.isDeputy ? 'سحب الإشراف' : 'منح إشراف'}</span>
+                    </button>
+                  )}
+
+                  {/* 3. Kick from Room */}
+                  {!selectedUserForModeration.isHost && (
+                    <button
+                      type="button"
+                      onClick={() => handleKickUser(selectedUserForModeration.id)}
+                      className="p-2.5 rounded-xl border border-orange-600/70 bg-orange-950/60 hover:bg-orange-900/80 text-orange-300 flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer"
+                    >
+                      <span className="text-base">🚪</span>
+                      <span>طرد من الغرفة</span>
+                    </button>
+                  )}
+
+                  {/* 4. Block / Ban */}
+                  {!selectedUserForModeration.isHost && (
+                    <button
+                      type="button"
+                      onClick={() => handleBlockUser(selectedUserForModeration.id)}
+                      className="p-2.5 rounded-xl border border-red-700 bg-red-950/70 hover:bg-red-900/90 text-red-300 flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer"
+                    >
+                      <span className="text-base">⛔</span>
+                      <span>حظر (بلوك)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Regular user view: Send Gift / Cheer */
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-bold text-slate-300">
+                  {lang === 'ar' ? 'التفاعل وإرسال الهدايا:' : 'Send Gift & Cheer:'}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addChatMessage(`${userProfile?.username || 'Ali'}: أرسل وردة 🌹 إلى ${selectedUserForModeration.name}`, 'gift');
+                      setSelectedUserForModeration(null);
+                      playGiftSound('chime');
+                    }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 flex flex-col items-center text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <span className="text-xl">🌹</span>
+                    <span className="text-[10px] text-slate-400 mt-1">وردة</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addChatMessage(`${userProfile?.username || 'Ali'}: أرسل فنجان قهوة ☕ إلى ${selectedUserForModeration.name}`, 'gift');
+                      setSelectedUserForModeration(null);
+                      playGiftSound('chime');
+                    }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 flex flex-col items-center text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <span className="text-xl">☕</span>
+                    <span className="text-[10px] text-slate-400 mt-1">قهوة</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addChatMessage(`${userProfile?.username || 'Ali'}: أرسل تاج الملوك 👑 إلى ${selectedUserForModeration.name}`, 'gift');
+                      setSelectedUserForModeration(null);
+                      playGiftSound('chime');
+                    }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 flex flex-col items-center text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <span className="text-xl">👑</span>
+                    <span className="text-[10px] text-slate-400 mt-1">تاج</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🎵 FULL MUSIC PLAYER MODAL */}
+      {isMusicModalOpen && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-fadeIn"
+        >
+          <div
+            ref={musicModalRef}
+            className="w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black border-2 border-amber-500/50 rounded-3xl p-5 shadow-[0_0_50px_rgba(251,191,36,0.35)] flex flex-col items-center gap-4 relative overflow-hidden text-slate-100"
+          >
+            {/* Header */}
+            <div className="w-full flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🎶</span>
+                <span className="text-sm font-black text-amber-300">
+                  {lang === 'ar' ? 'مشغل الأغاني الأسطواني' : 'Vinyl Music Player'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMusicModalOpen(false);
+                    setIsMusicMinimized(true);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer border border-slate-700"
+                  title={lang === 'ar' ? 'تصغير إلى أسطوانة عائمة' : 'Minimize to vinyl'}
+                >
+                  ↙️ {lang === 'ar' ? 'تصغير' : 'Min'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMusicModalOpen(false);
+                    setIsMusicMinimized(true);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 hover:border-rose-600 text-slate-300 text-xs font-bold transition-all cursor-pointer border border-slate-700"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Rotating Large Vinyl Display */}
+            <div className="relative my-1">
+              <div
+                className={`w-36 h-36 rounded-full shadow-[0_12px_40px_rgba(0,0,0,0.95)] border-4 border-slate-800 p-2 flex items-center justify-center transition-all ${
+                  isPlayingMusic ? 'animate-[spin_3.5s_linear_infinite]' : ''
+                }`}
+                style={{
+                  background: 'radial-gradient(circle, #25252d 15%, #050505 45%, #18181f 70%, #000000 100%)',
+                }}
+              >
+                <div className="w-28 h-28 rounded-full border border-dashed border-white/10 flex items-center justify-center">
+                  <div className="w-20 h-20 rounded-full border border-white/10 flex items-center justify-center">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-rose-600 via-amber-500 to-yellow-400 flex items-center justify-center shadow-lg relative border-2 border-white/30">
+                      <span className="text-lg">🎵</span>
+                      <div className="w-2.5 h-2.5 rounded-full bg-slate-950 border border-white/40 absolute" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Track Info */}
+            <div className="text-center w-full px-2">
+              <h4 className="text-sm font-black text-amber-300 truncate max-w-full">
+                {musicTrackName || (lang === 'ar' ? 'لم يتم اختيار أغنية بعد' : 'No song selected')}
+              </h4>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {lang === 'ar' ? 'تشغيل من هاتفك وجهازك 🎧' : 'Playing local device audio 🎧'}
+              </p>
+            </div>
+
+            {/* Progress Bar & Timing */}
+            <div className="w-full space-y-1">
+              <input
+                type="range"
+                min="0"
+                max={musicDuration || 100}
+                value={musicCurrentTime || 0}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setMusicCurrentTime(val);
+                  if (audioRef.current) audioRef.current.currentTime = val;
+                }}
+                className="w-full accent-amber-400 cursor-pointer h-1.5 rounded-lg bg-slate-800"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                <span>{formatMusicTime(musicCurrentTime)}</span>
+                <span>{formatMusicTime(musicDuration)}</span>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="w-full flex items-center justify-between px-2">
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span>🔊</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={musicVolume}
+                  onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                  className="w-16 accent-amber-400 cursor-pointer h-1"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={toggleMusic}
+                className="w-12 h-12 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 flex items-center justify-center text-lg font-black shadow-[0_0_20px_rgba(251,191,36,0.6)] active:scale-95 transition-all cursor-pointer"
+              >
+                {isPlayingMusic ? '⏸️' : '▶️'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => musicFileInputRef.current?.click()}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                title={lang === 'ar' ? 'تغيير الأغنية واختيار ملف آخر' : 'Change song'}
+              >
+                <span>📂</span>
+                <span>{lang === 'ar' ? 'تغيير' : 'Pick'}</span>
+              </button>
+            </div>
+
+            <p className="text-[10px] text-slate-500 text-center">
+              {lang === 'ar'
+                ? '💡 اضغط في أي مكان بالشاشة لتصغير المشغل لأسطوانة عائمة تدور أثناء اللعب!'
+                : '💡 Click outside to minimize to a spinning vinyl record!'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 💽 FLOATING MINIMIZED VINYL RECORD WIDGET */}
+      {isMusicMinimized && !isMusicModalOpen && (
+        <div
+          onClick={() => setIsMusicModalOpen(true)}
+          className="fixed bottom-24 right-4 sm:bottom-8 sm:right-8 z-40 flex items-center gap-2 cursor-pointer group select-none active:scale-95 transition-transform"
+          title={lang === 'ar' ? 'انقر لفتح مشغل الأغاني' : 'Click to open music player'}
+        >
+          {musicTrackName && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-slate-950/90 border border-amber-400/50 rounded-full text-[11px] text-amber-300 font-bold shadow-2xl backdrop-blur-md max-w-[170px] truncate animate-fadeIn">
+              <span className={isPlayingMusic ? 'animate-bounce' : ''}>🎶</span>
+              <span className="truncate">{musicTrackName}</span>
+            </div>
+          )}
+
+          <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center">
+            {isPlayingMusic && (
+              <>
+                <span className="absolute inset-0 rounded-full bg-amber-400/25 animate-ping" />
+                <span className="absolute -inset-1 rounded-full border border-amber-400/40 animate-pulse" />
+              </>
+            )}
+
+            <div
+              className={`w-full h-full rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.9)] border-2 border-slate-700/80 p-1 flex items-center justify-center transition-all ${
+                isPlayingMusic ? 'animate-[spin_3s_linear_infinite]' : ''
+              }`}
+              style={{
+                background: 'radial-gradient(circle, #25252c 15%, #070709 45%, #16161c 70%, #000000 100%)',
+              }}
+            >
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border border-dashed border-white/10 flex items-center justify-center">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-white/5 flex items-center justify-center">
+                  <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-gradient-to-tr from-rose-600 via-amber-500 to-yellow-400 flex items-center justify-center shadow-inner relative border border-white/30">
+                    <span className="text-[9px]">🎵</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-950 border border-white/40 absolute" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-slate-950 flex items-center justify-center text-[7px] font-black shadow ${
+                isPlayingMusic ? 'bg-emerald-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950'
+              }`}
+            >
+              {isPlayingMusic ? '▶' : '⏸'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚙️ SETTINGS MODAL - FOR HOST & DEPUTIES ONLY */}
+      {showSettingsModal && canAccessSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-950 border-2 border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3 text-slate-100">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-sm font-black text-slate-200">⚙️ {lang === 'ar' ? 'إعدادات اللعبة' : 'Game Settings'}</span>
+              <span className="text-sm font-black text-amber-300 flex items-center gap-1.5">
+                <span>⚙️</span>
+                <span>{lang === 'ar' ? 'إعدادات الغرفة (للمشرفين فقط)' : 'Room Settings (Admins only)'}</span>
+              </span>
               <button
                 type="button"
                 onClick={() => setShowSettingsModal(false)}
@@ -4674,7 +5312,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </button>
             </div>
 
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2.5 text-xs">
               {/* Sound Toggle */}
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
                 <span className="text-slate-300 font-bold">{lang === 'ar' ? 'المؤثرات الصوتية:' : 'Sound Effects:'}</span>
@@ -4689,18 +5327,45 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 </button>
               </div>
 
-              {/* Intro Replay */}
+              {/* Theme Selection */}
+              <div className="space-y-1 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'تصميم الرقعة (الثيم):' : 'Board Theme:'}</span>
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  {(['classic', 'space', 'underwater', 'ancient'] as BoardTheme[]).map((themeKey) => (
+                    <button
+                      key={themeKey}
+                      type="button"
+                      onClick={() => setSelectedBoardSkin(themeKey)}
+                      className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition-all ${
+                        selectedBoardSkin === themeKey
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                          : 'bg-slate-950/60 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      {BOARD_SKINS[themeKey].icon} {lang === 'ar' ? BOARD_SKINS[themeKey].nameAr : BOARD_SKINS[themeKey].nameEn}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mic Permission Mode */}
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'الدخلة السينمائية:' : 'Intro Scene:'}</span>
+                <div>
+                  <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'صلاحيات المايك:' : 'Mic Mode:'}</span>
+                  <span className="text-[9px] text-slate-500">
+                    {roomMicMode === 'all' ? (lang === 'ar' ? 'متاح للجميع' : 'Open for all') : (lang === 'ar' ? 'للمشرفين فقط' : 'Admins only')}
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowSettingsModal(false);
-                    setShowCinematicIntro(true);
-                  }}
-                  className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black"
+                  onClick={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors ${
+                    roomMicMode === 'all'
+                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                      : 'bg-amber-950 text-amber-300 border border-amber-800'
+                  }`}
                 >
-                  🎬 مشاهدة
+                  {roomMicMode === 'all' ? '🎙️ للجميع' : '👑 للمشرفين'}
                 </button>
               </div>
 

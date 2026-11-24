@@ -14,6 +14,10 @@ export interface CafeRoomConfig {
   entryFee: number;
   prizeAmount: number;
   subType?: string; // e.g. classic/blitz, single/partnership
+  isHost?: boolean;
+  hostId?: string;
+  hostName?: string;
+  hostAvatar?: string;
 }
 
 interface CafeRoomModalProps {
@@ -480,12 +484,12 @@ export default function CafeRoomModal({
   lang = 'ar',
 }: CafeRoomModalProps) {
   const meta = CAFE_GAMES_META[gameKey] || CAFE_GAMES_META.ludo;
-  const [tab, setTab] = useState<'create' | 'browse'>('create');
+  const [tab, setTab] = useState<'create' | 'browse'>(meta.activeTables && meta.activeTables.length > 0 ? 'browse' : 'create');
   const [role, setRole] = useState<'player' | 'spectator'>('player');
   const [playerCount, setPlayerCount] = useState<number>(meta.defaultPlayers);
   const [entryFee, setEntryFee] = useState<number>(50);
   const [roomNameInput, setRoomNameInput] = useState<string>(
-    lang === 'ar' ? `طاولة ${profile.username} بالقهوة ☕` : `${profile.username}'s Cafe Table ☕`
+    lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`
   );
 
   // Matchmaking animation state
@@ -530,13 +534,17 @@ export default function CafeRoomModal({
 
   const handleCreateRoom = () => {
     const config: CafeRoomConfig = {
-      roomId: `table-${Date.now().toString().slice(-4)}`,
+      roomId: `room-${Date.now().toString().slice(-4)}`,
       gameKey,
-      roomName: roomNameInput || (lang === 'ar' ? 'طاولة القهوة' : 'Cafe Table'),
+      roomName: roomNameInput || (lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`),
       role,
       playerCount,
       entryFee,
       prizeAmount: role === 'spectator' ? 0 : entryFee * (playerCount === 2 ? 1.9 : 3.8),
+      isHost: true,
+      hostId: profile.id,
+      hostName: profile.username,
+      hostAvatar: profile.avatar_url || '',
     };
     startEntryFlow(config);
   };
@@ -561,6 +569,10 @@ export default function CafeRoomModal({
       entryFee: chosenRole === 'spectator' ? 0 : room.entryFee,
       prizeAmount: chosenRole === 'spectator' ? 0 : room.prizeAmount,
       subType: room.subType,
+      isHost: false,
+      hostId: room.id,
+      hostName: room.hostName,
+      hostAvatar: room.hostAvatar,
     };
     startEntryFlow(config);
   };
@@ -631,22 +643,9 @@ export default function CafeRoomModal({
           /* Normal Configuration & Tabs */
           <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
 
-            {/* Main Tabs: Create Room vs Active Live Rooms */}
+            {/* Main Tabs: Active Live Rooms vs Create Room */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTab('create')}
-                  className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                    tab === 'create'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-lg shadow-amber-950/50 border border-amber-400'
-                      : 'bg-slate-800/60 text-slate-400 hover:text-white border border-slate-700/50'
-                  }`}
-                >
-                  <span>☕</span>
-                  <span>{lang === 'ar' ? 'إنشاء طاولة قهوة جديدة' : 'Create New Table'}</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => setTab('browse')}
@@ -657,10 +656,23 @@ export default function CafeRoomModal({
                   }`}
                 >
                   <span>👥</span>
-                  <span>{lang === 'ar' ? 'طاولات القهوة المفتوحة' : 'Active Cafe Tables'}</span>
+                  <span>{lang === 'ar' ? 'الغرف المتاحة حالياً' : 'Available Rooms'}</span>
                   <span className="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30">
                     {meta.activeTables.length}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTab('create')}
+                  className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                    tab === 'create'
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-lg shadow-amber-950/50 border border-amber-400'
+                      : 'bg-slate-800/60 text-slate-400 hover:text-white border border-slate-700/50'
+                  }`}
+                >
+                  <span>👑</span>
+                  <span>{lang === 'ar' ? 'إنشاء غرفة باسمك' : 'Create Room In Your Name'}</span>
                 </button>
               </div>
 
