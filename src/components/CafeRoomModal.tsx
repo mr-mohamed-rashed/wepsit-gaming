@@ -750,40 +750,7 @@ export default function CafeRoomModal({
                   </div>
                 </div>
 
-                {/* 3. Number of Players (respects game rules) */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <span>👥</span>
-                    <span>{lang === 'ar' ? 'عدد اللاعبين على الطاولة:' : 'Number of Players:'}</span>
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {meta.supportedPlayers.map((count) => (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={() => setPlayerCount(count)}
-                        className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
-                          playerCount === count
-                            ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-black'
-                            : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-white text-xs'
-                        }`}
-                      >
-                        <div className="text-xs font-bold">
-                          {count === 2
-                            ? (lang === 'ar' ? 'لاعبين 2 (وجهاً لوجه)' : '2 Players (1v1)')
-                            : (lang === 'ar' ? '4 لاعبين (شراكة / لمة)' : '4 Players (Full Table)')}
-                        </div>
-                      </button>
-                    ))}
-                    {meta.supportedPlayers.length === 1 && (
-                      <div className="text-[11px] text-slate-400 flex items-center px-2 py-1 bg-slate-950/40 rounded-xl border border-slate-800 col-span-2 sm:col-span-3">
-                        ℹ️ {lang === 'ar' ? 'هذه اللعبة مخصصة لـ 2 لاعبين وفق القواعد الرسمية' : 'This game strictly supports 2 players'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 4. Stake / Entry Fee (Free for spectators, gold for players) */}
+                {/* 3. Stake / Entry Fee (Free for spectators, gold for players) */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center text-xs">
                     <label className="font-bold text-slate-300 flex items-center gap-1.5">
@@ -823,6 +790,10 @@ export default function CafeRoomModal({
                         </button>
                       );
                     })}
+                  </div>
+                  <div className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 mt-2">
+                    <span>💡</span>
+                    <span>{lang === 'ar' ? 'يتم تحديد عدد اللاعبين (2 أو 4) وتعديل القواعد بحرية تامة من داخل الغرفة في أي وقت.' : 'Configure player count (2 or 4) and rules freely inside the room anytime.'}</span>
                   </div>
                 </div>
 

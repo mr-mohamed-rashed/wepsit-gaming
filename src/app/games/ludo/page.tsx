@@ -34,7 +34,7 @@ const BOARD_SKINS: Record<BoardTheme, BoardSkinData> = {
     id: 'space',
     nameAr: 'مجرة الكواكب والفضاء',
     nameEn: 'Cosmic Galaxy & Planets',
-    image: '/board_skin_cosmic.jpg',
+    image: '/space_board.png',
     icon: '🪐',
   },
   underwater: {
@@ -778,6 +778,7 @@ function LudoApp() {
   const queryWinRule = searchParams.get('winRule');
   const queryStake = searchParams.get('stake');
   const queryRoomName = searchParams.get('roomName');
+  const querySkin = (searchParams.get('skin') || searchParams.get('mode') || searchParams.get('theme')) as BoardTheme | null;
   const queryIsHost = searchParams.get('isHost') !== 'false';
   const queryHostId = searchParams.get('hostId') || (queryIsHost ? (queryUserId || '12842582') : 'host-1');
   const queryHostName = searchParams.get('hostName') || (queryIsHost ? (queryUsername || 'Ali') : (lang === 'ar' ? 'صاحب الغرفة' : 'Room Host'));
@@ -792,7 +793,49 @@ function LudoApp() {
   const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryRole);
   const [gameStarted, setGameStarted] = useState<boolean>(false); // Starts from inside the room
   const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
-  const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>('classic');
+  const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>(() => {
+    if (querySkin && ['classic', 'space', 'underwater', 'ancient'].includes(querySkin)) {
+      return querySkin;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('ludo_board_theme') as BoardTheme;
+        if (saved && ['classic', 'space', 'underwater', 'ancient'].includes(saved)) {
+          return saved;
+        }
+      } catch (e) {}
+    }
+    return 'classic';
+  });
+
+  const handleSelectTheme = (themeKey: BoardTheme) => {
+    setSelectedBoardSkin(themeKey);
+    try {
+      localStorage.setItem('ludo_board_theme', themeKey);
+    } catch (e) {}
+  };
+
+  // Drag-to-scroll refs and handlers for the Top Mic Seats bar (الاسكرول بالسحب بدون شريط رمادي)
+  const micSeatsScrollRef = useRef<HTMLDivElement>(null);
+  const isDraggingMicRef = useRef(false);
+  const startXMicRef = useRef(0);
+  const scrollLeftMicRef = useRef(0);
+
+  const handleMicMouseDown = (e: React.MouseEvent) => {
+    isDraggingMicRef.current = true;
+    startXMicRef.current = e.pageX - (micSeatsScrollRef.current?.offsetLeft || 0);
+    scrollLeftMicRef.current = micSeatsScrollRef.current?.scrollLeft || 0;
+  };
+  const handleMicMouseLeaveOrUp = () => {
+    isDraggingMicRef.current = false;
+  };
+  const handleMicMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingMicRef.current || !micSeatsScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - (micSeatsScrollRef.current.offsetLeft || 0);
+    const walk = (x - startXMicRef.current) * 1.5;
+    micSeatsScrollRef.current.scrollLeft = scrollLeftMicRef.current - walk;
+  };
   const [playerCount, setPlayerCount] = useState<2 | 3 | 4>(initialPlayerCount);
   const [pieceCount, setPieceCount] = useState<number>(initialPieceCount);
   const [winRule, setWinRule] = useState<'first' | 'all'>(initialWinRule);
@@ -1035,6 +1078,7 @@ function LudoApp() {
     isHost?: boolean;
     isDeputy?: boolean;
     isMuted?: boolean;
+    isMicOn?: boolean;
   }) => {
     if (target.id === userProfile?.id) {
       toggleMic();
@@ -2108,7 +2152,16 @@ function LudoApp() {
     setRollingDicePlayer(turn);
     playDiceRollSound();
 
+    // Rapid face shuffling for natural 3D rolling appearance
+    const shuffleInterval = setInterval(() => {
+      setDiceValues(prev => ({
+        ...prev,
+        [turn]: Math.floor(Math.random() * 6) + 1,
+      }));
+    }, 60);
+
     setTimeout(() => {
+      clearInterval(shuffleInterval);
       let finalVal = Math.floor(Math.random() * 6) + 1;
 
       if (consecutiveSixes === 0) {
@@ -3017,7 +3070,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         }}
         className={`relative w-8 h-8 sm:w-10 sm:h-10 transition-all select-none ${
           canClick ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'
-        } ${isRolling ? 'animate-dice-tumble' : ''}`}
+        } ${isRolling ? 'animate-dice-natural-roll shadow-[0_15px_30px_rgba(0,0,0,0.6)] z-30' : ''}`}
         title={canClick ? (lang === 'ar' ? 'انقر لرمي النرد!' : 'Click to roll dice!') : ''}
       >
         {/* Turn pointer arrow ▼ above the dice (Matching Image 1!) */}
@@ -3098,10 +3151,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
     else if (baseColor === 'red') gridStyle = { gridRow: '10 / 16', gridColumn: '1 / 7' };
     else if (baseColor === 'blue') gridStyle = { gridRow: '10 / 16', gridColumn: '10 / 16' };
 
+    const isSpace = selectedBoardSkin === 'space';
     const colorConfig = {
       green: {
-        bg: 'bg-emerald-600',
-        border: 'border-emerald-500/90',
+        bg: isSpace ? 'bg-emerald-950/40 backdrop-blur-[1px]' : 'bg-emerald-600',
+        border: isSpace ? 'border-emerald-400/80 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'border-emerald-500/90',
         glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
         avatarBorder: 'border-emerald-300',
         defaultName: 'Ali Ali',
@@ -3110,8 +3164,8 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         fallbackAvatar: '🟢',
       },
       yellow: {
-        bg: 'bg-amber-500',
-        border: 'border-amber-400/90',
+        bg: isSpace ? 'bg-amber-950/40 backdrop-blur-[1px]' : 'bg-amber-500',
+        border: isSpace ? 'border-amber-400/80 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'border-amber-400/90',
         glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.35),0_4px_12px_rgba(0,0,0,0.35)]',
         avatarBorder: 'border-amber-200',
         defaultName: 'محمود',
@@ -3120,8 +3174,8 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         fallbackAvatar: '🟡',
       },
       red: {
-        bg: 'bg-rose-600',
-        border: 'border-rose-400/90',
+        bg: isSpace ? 'bg-rose-950/40 backdrop-blur-[1px]' : 'bg-rose-600',
+        border: isSpace ? 'border-rose-400/80 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'border-rose-400/90',
         glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
         avatarBorder: 'border-rose-300',
         defaultName: 'الساحر',
@@ -3130,8 +3184,8 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
         fallbackAvatar: '🔴',
       },
       blue: {
-        bg: 'bg-blue-600',
-        border: 'border-blue-400/90',
+        bg: isSpace ? 'bg-blue-950/40 backdrop-blur-[1px]' : 'bg-blue-600',
+        border: isSpace ? 'border-blue-400/80 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-blue-400/90',
         glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
         avatarBorder: 'border-cyan-300',
         defaultName: userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)'),
@@ -3620,7 +3674,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                       <button
                         key={themeKey}
                         type="button"
-                        onClick={() => setSelectedBoardSkin(themeKey)}
+                        onClick={() => handleSelectTheme(themeKey)}
                         className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-amber-500/25 border-amber-400 text-amber-300 ring-1 ring-amber-400 shadow'
@@ -4125,6 +4179,42 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                       </button>
                     </div>
 
+                    {/* Board Theme / Skin Selector (اختيار ثيم الرقعة ومجرة الكواكب مباشرة) */}
+                    <div className="space-y-1.5 p-2 rounded-2xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                          <span>🎨</span>
+                          <span>{lang === 'ar' ? 'تصميم وثيم الرقعة (المود):' : 'Board Skin / Theme:'}</span>
+                        </span>
+                        <span className="text-[10px] text-amber-300 font-black">
+                          {BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+                        {(Object.keys(BOARD_SKINS) as BoardTheme[]).map((themeKey) => {
+                          const skin = BOARD_SKINS[themeKey];
+                          const isSelected = selectedBoardSkin === themeKey;
+                          return (
+                            <button
+                              key={themeKey}
+                              type="button"
+                              onClick={() => handleSelectTheme(themeKey)}
+                              className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-amber-500/25 border-amber-400 text-amber-300 ring-1 ring-amber-400 shadow'
+                                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <div className="text-base">{skin.icon}</div>
+                              <div className="text-[9px] font-bold truncate mt-0.5">
+                                {lang === 'ar' ? skin.nameAr : skin.nameEn}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* Solo / Bot Notice */}
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-2 text-[10px] text-amber-300/90 flex items-center gap-2">
                       <span className="text-base">💡</span>
@@ -4232,40 +4322,23 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                 </button>
               </div>
 
-              {/* Spectator / Voice Seats Bar (المقاعد للاعبين والمتفرجين) */}
-              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-1.5 bg-black/30 rounded-full border border-white/10 backdrop-blur-sm">
+              {/* Spectator / Voice Seats Bar (المقاعد للاعبين والمتفرجين - سحب بدون شريط سكرول رمادي) */}
+              <div
+                ref={micSeatsScrollRef}
+                onMouseDown={handleMicMouseDown}
+                onMouseLeave={handleMicMouseLeaveOrUp}
+                onMouseUp={handleMicMouseLeaveOrUp}
+                onMouseMove={handleMicMouseMove}
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/40 rounded-full border border-white/10 backdrop-blur-sm [&::-webkit-scrollbar]:hidden shrink min-w-0"
+              >
                 {/* Level / Room Rank Badge */}
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-950/90 border border-emerald-400/60 flex items-center justify-center text-[9px] font-black text-amber-300 shadow shrink-0">
                   ⭐ 2
                 </div>
 
-                {/* User Spectator Seat (when entering as spectator) */}
-                {userRole === 'spectator' && (
-                  <div
-                    onClick={() => handleUserClick({
-                      id: userProfile?.id || '12842582',
-                      name: userProfile?.username || 'Ali',
-                      avatar: userProfile?.avatar_url || '/laugh_emote.png',
-                      isSpectator: true,
-                    })}
-                    className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-emerald-400 p-0.5 shadow-[0_0_10px_rgba(16,185,129,0.8)] shrink-0 bg-slate-900 ring-2 ring-emerald-400/50 cursor-pointer"
-                    title={`${userProfile?.username || 'Ali'} (أنت على المايك)`}
-                  >
-                    {userProfile?.avatar_url ? (
-                      <img src={userProfile.avatar_url} alt="You" className="w-full h-full object-cover rounded-full" />
-                    ) : (
-                      <div className="w-full h-full rounded-full bg-emerald-600 flex items-center justify-center text-[10px]">
-                        🎙️
-                      </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border border-white text-[7px] flex items-center justify-center animate-pulse">
-                      🎙️
-                    </div>
-                  </div>
-                )}
-
                 {/* Empty Seats with + */}
-                {[1, 2].map(seatIdx => (
+                {[1, 2, 3].map(seatIdx => (
                   <button
                     key={`seat-${seatIdx}`}
                     type="button"
@@ -4280,7 +4353,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   </button>
                 ))}
 
-                {/* Seated Spectator 1: Al-Sahir */}
+                {/* Seated Participant 1: Al-Sahir (الساحر بإطار ذهبي ومايك) */}
                 <div
                   onClick={() => handleUserClick({
                     id: 'spec-sahir',
@@ -4289,11 +4362,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                     isSpectator: true,
                     isBot: false,
                   })}
-                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
+                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
                   title="الساحر (انقر للإشراف / الملف)"
                 >
                   <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
-                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center`}>
+                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
                     {mutedUserIds.includes('spec-sahir') ? '🔇' : '🎙️'}
                   </div>
                   {moderatorIds.includes('spec-sahir') && (
@@ -4301,7 +4374,31 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                   )}
                 </div>
 
-                {/* Seated Spectator 2: Mahmoud */}
+                {/* 👑 ROOM HOST ON MIC (صاحب الغرفة على المايك دايماً كما في الصورة 1) */}
+                <div
+                  onClick={() => handleUserClick({
+                    id: roomHostId,
+                    name: roomHostName,
+                    avatar: roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png',
+                    isHost: true,
+                    isDeputy: false,
+                    isMicOn: isHost ? isMicOn : true,
+                  })}
+                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-amber-400 p-0.5 shadow-[0_0_12px_rgba(251,191,36,0.6)] shrink-0 bg-slate-900 ring-2 ring-amber-400/50 cursor-pointer hover:scale-110 transition-transform"
+                  title={`${roomHostName} (👑 صاحب الغرفة على المايك)`}
+                >
+                  <img
+                    src={roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png'}
+                    alt={roomHostName}
+                    className="w-full h-full object-cover rounded-full"
+                  />
+                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(roomHostId) ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
+                    {mutedUserIds.includes(roomHostId) ? '🔇' : '🎙️'}
+                  </div>
+                  <div className="absolute -top-1.5 -right-1 text-[9px] z-10 filter drop-shadow">👑</div>
+                </div>
+
+                {/* Seated Participant 3: Mahmoud */}
                 <div
                   onClick={() => handleUserClick({
                     id: 'spec-mahmoud',
@@ -4310,11 +4407,11 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                     isSpectator: true,
                     isBot: false,
                   })}
-                  className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
+                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
                   title="محمود (انقر للإشراف / الملف)"
                 >
                   <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
-                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center`}>
+                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
                     {mutedUserIds.includes('spec-mahmoud') ? '🔇' : '🎙️'}
                   </div>
                   {moderatorIds.includes('spec-mahmoud') && (
@@ -4401,34 +4498,15 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
             dir="ltr"
             className="w-full max-w-[min(96vw,450px)] aspect-square rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.85)] border-2 border-emerald-800/80 my-auto relative shrink-0 z-10"
           >
-            {/* Quick Floating Emotes Popup */}
-            {showEmotesBar && (
-              <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/95 border border-amber-400/60 px-3 py-1.5 rounded-full shadow-2xl z-50 backdrop-blur-md animate-fadeIn">
-                {['🧙‍♂️', '🤖', '🏹', '😂', '🔥', '👏', '👑'].map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => {
-                      addChatMessage(`${userProfile?.username || 'Ali'}: ${emoji}`, 'chat', userProfile?.username || 'Ali');
-                      setShowEmotesBar(false);
-                      playGiftSound('chime');
-                    }}
-                    className="text-lg hover:scale-125 transition-transform active:scale-90 cursor-pointer"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
-
             <div
-              className="w-full h-full grid rounded-2xl overflow-hidden shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] border border-slate-700/60 bg-white"
+              className="w-full h-full grid rounded-2xl overflow-hidden shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] border border-slate-700/60 bg-slate-950"
               style={{
                 gridTemplateColumns: 'repeat(15, 1fr)',
                 gridTemplateRows: 'repeat(15, 1fr)',
                 backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center'
+                backgroundSize: '100% 100%',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
               }}
             >
               {renderBoard()}
@@ -4503,8 +4581,83 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
               </div>
             </div>
 
-            {/* 4. BOTTOM ACTION TOOLBAR (Gift, Menu, Mail, Mic, Smileys, Chat Input - Matching Image 1) */}
-            <div className="w-full flex items-center justify-between gap-1.5 px-1 py-1">
+            {/* 4. BOTTOM ACTION TOOLBAR (Gift, Menu, Mail, Mic, Smileys, Chat Input - Matching Image 1 & 3) */}
+            <div className="w-full flex items-center justify-between gap-1.5 px-1 py-1 relative">
+              {/* EMOJI & STICKERS POPUP DRAWER (أعلى زر الإيموجي مباشرةً مع ملصقاتنا الخاصة) */}
+              {showEmotesBar && (
+                <div
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  className="absolute bottom-12 right-2 sm:right-16 z-50 bg-slate-950/95 border-2 border-amber-400/80 rounded-2xl p-3 shadow-[0_0_35px_rgba(0,0,0,0.95)] backdrop-blur-xl animate-fadeIn flex flex-col gap-2.5 min-w-[270px] max-w-[320px]"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 text-xs font-black text-amber-300">
+                    <span className="flex items-center gap-1.5">
+                      <span>🎭</span>
+                      <span>{lang === 'ar' ? 'إيموجي وملصقات اللعبة' : 'Game Stickers & Emotes'}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmotesBar(false)}
+                      className="w-5 h-5 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-[10px] font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Our Custom Image Emotes / Stickers */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block mb-1 font-bold">
+                      {lang === 'ar' ? 'ملصقاتنا المميزة:' : 'Featured Stickers:'}
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'laugh', img: '/laugh_emote.png', name: 'ضحكة أسطورية' },
+                        { id: 'kaizen', img: '/kaizen_emoji_pack.png', name: 'كايزن إيموجي' },
+                        { id: 'dragon', img: '/dragon_emote.png', name: 'التنين المقاتل' },
+                      ].map(stk => (
+                        <button
+                          key={stk.id}
+                          type="button"
+                          onClick={() => {
+                            addChatMessage(`${userProfile?.username || 'Ali'}: أرسل ملصق ${stk.name} ✨`, 'chat', userProfile?.username || 'Ali');
+                            triggerPlayerEmote('blue', 'wizard');
+                            setShowEmotesBar(false);
+                            playGiftSound('chime');
+                          }}
+                          className="p-1 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-700/80 hover:border-amber-400 flex flex-col items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                          title={stk.name}
+                        >
+                          <img src={stk.img} alt={stk.name} className="w-8 h-8 rounded-lg object-contain" />
+                          <span className="text-[8px] text-slate-300 font-bold truncate max-w-full">{stk.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Popular Reaction Emojis */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block mb-1 font-bold">
+                      {lang === 'ar' ? 'إيموجي التفاعل السريع:' : 'Quick Reactions:'}
+                    </span>
+                    <div className="grid grid-cols-6 gap-1 text-center">
+                      {['😂', '🤣', '🔥', '👑', '👏', '🧙‍♂️', '🛡️', '🏹', '💀', '❤️', '🤝', '☕'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            addChatMessage(`${userProfile?.username || 'Ali'}: ${emoji}`, 'chat', userProfile?.username || 'Ali');
+                            setShowEmotesBar(false);
+                            playGiftSound('chime');
+                          }}
+                          className="p-1.5 rounded-lg bg-slate-900/80 hover:bg-amber-400/20 text-lg hover:scale-125 transition-transform active:scale-90 cursor-pointer"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Gift Modal Trigger 🎁 */}
               <button
                 type="button"
@@ -5335,7 +5488,7 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
                     <button
                       key={themeKey}
                       type="button"
-                      onClick={() => setSelectedBoardSkin(themeKey)}
+                      onClick={() => handleSelectTheme(themeKey)}
                       className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition-all ${
                         selectedBoardSkin === themeKey
                           ? 'bg-amber-500/20 text-amber-300 border-amber-400'
@@ -5450,18 +5603,29 @@ const ThemedLudoToken = ({ color, isSelectable = false }: { color: string; isSel
           100% { opacity: 0; transform: scale(1.8) translate(-50%, -50%) rotate(540deg); }
         }
 
-        @keyframes dice-tumble {
-          0% { transform: scale(1) rotate(0deg) translate(0, 0); }
-          15% { transform: scale(0.85) rotate(-35deg) translate(-6px, -8px); }
-          30% { transform: scale(1.15) rotate(35deg) translate(6px, 6px); }
-          45% { transform: scale(0.9) rotate(-22deg) translate(-4px, -4px); }
-          60% { transform: scale(1.1) rotate(22deg) translate(4px, 4px); }
-          75% { transform: scale(0.95) rotate(-12deg) translate(-2px, -2px); }
-          90% { transform: scale(1.05) rotate(12deg) translate(2px, 2px); }
-          100% { transform: scale(1) rotate(0deg) translate(0, 0); }
+        @keyframes natural-dice-roll {
+          0% {
+            transform: perspective(600px) translateY(0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
+          }
+          20% {
+            transform: perspective(600px) translateY(-30px) rotateX(240deg) rotateY(180deg) rotateZ(90deg) scale(1.22);
+          }
+          45% {
+            transform: perspective(600px) translateY(-16px) rotateX(480deg) rotateY(360deg) rotateZ(210deg) scale(1.12);
+          }
+          70% {
+            transform: perspective(600px) translateY(-5px) rotateX(680deg) rotateY(540deg) rotateZ(320deg) scale(1.04);
+          }
+          88% {
+            transform: perspective(600px) translateY(3px) rotateX(720deg) rotateY(720deg) rotateZ(360deg) scale(0.95);
+          }
+          100% {
+            transform: perspective(600px) translateY(0) rotateX(720deg) rotateY(720deg) rotateZ(360deg) scale(1);
+          }
         }
-        .animate-dice-tumble {
-          animation: dice-tumble 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+        .animate-dice-natural-roll {
+          animation: natural-dice-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+          transform-style: preserve-3d;
         }
         @keyframes poke-left {
           0%, 100% { transform: translate(0, -50%); }
