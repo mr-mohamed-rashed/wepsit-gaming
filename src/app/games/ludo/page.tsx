@@ -2403,6 +2403,7 @@ function LudoApp() {
 
   const ThemedLudoToken = ({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) => {
     const theme = selectedBoardSkin || 'classic';
+    const tokenSizeClass = isAtHome ? 'w-[76%] h-[80%] translate-y-0' : 'w-[84%] h-[88%] translate-y-0';
 
     // 1. CLASSIC THEME (Traditional 3D Royal Ludo Pawn - Identical to User's Reference Photo)
     if (theme === 'classic') {
@@ -2437,9 +2438,7 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${
-            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
-          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_rgba(250,204,21,0.95)]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2547,9 +2546,7 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${
-            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
-          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#06b6d4]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2647,9 +2644,7 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${
-            isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
-          } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
             isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#f59e0b]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
           }`}
         >
@@ -2769,9 +2764,7 @@ function LudoApp() {
 
     return (
       <div
-        className={`relative ${
-          isAtHome ? 'w-[72%] h-[78%] translate-y-0' : 'w-[85%] h-[119%] -translate-y-[38%]'
-        } flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
+        className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
           isSelectable ? `animate-bounce z-30 filter drop-shadow-[0_0_14px_${cfg.neon}]` : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
         }`}
       >
@@ -2852,6 +2845,8 @@ function LudoApp() {
     const SpaceToken = ThemedLudoToken;
 
   const renderBoard = () => {
+    const isClassic = selectedBoardSkin === 'classic';
+    const isIllustrated = selectedBoardSkin === 'underwater' || selectedBoardSkin === 'space' || selectedBoardSkin === 'ancient';
     const cells = [];
     for (let r = 0; r < 15; r++) {
       for (let c = 0; c < 15; c++) {
@@ -2865,65 +2860,73 @@ function LudoApp() {
           continue;
         }
 
-        // PATH CELL STYLING (Outlined, high-tech, and distinct)
-        const isIllustrated = selectedBoardSkin === 'classic' || selectedBoardSkin === 'underwater' || selectedBoardSkin === 'space' || selectedBoardSkin === 'ancient';
-        let cellStyle = isIllustrated
-          ? 'border border-slate-700/30 bg-slate-900/10 rounded-[3px]'
-          : 'border border-cyan-500/30 bg-slate-950/45 rounded-[3px] shadow-[inset_0_0_4px_rgba(0,0,0,0.7)]';
+        // PATH CELL STYLING (Unified clean 15x15 bottom board layer with crisp separation)
+        let cellStyle = isClassic
+          ? 'border border-slate-300 bg-white rounded-[4px] shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]'
+          : isIllustrated
+          ? 'border border-slate-700/35 bg-slate-900/15 rounded-[4px]'
+          : 'border border-cyan-500/30 bg-slate-950/45 rounded-[4px] shadow-[inset_0_0_4px_rgba(0,0,0,0.7)]';
         let cellIndicator: React.ReactNode = null;
 
         const isSafeCell = (r === 6 && c === 12) || (r === 8 && c === 2) || (r === 2 && c === 6) || (r === 12 && c === 8);
         if (isSafeCell) {
-          cellStyle = 'border-2 border-amber-400/80 bg-amber-500/20 shadow-[0_0_10px_rgba(251,191,36,0.4),inset_0_0_6px_rgba(251,191,36,0.3)] rounded-[3px]';
-          cellIndicator = <span className="text-amber-300 text-xs font-black select-none">⭐</span>;
+          cellStyle = isClassic
+            ? 'border border-amber-400 bg-amber-50 rounded-[4px] shadow-[inset_0_0_8px_rgba(245,158,11,0.22)]'
+            : 'border border-amber-400/80 bg-amber-500/20 shadow-[0_0_10px_rgba(251,191,36,0.4),inset_0_0_6px_rgba(251,191,36,0.3)] rounded-[4px]';
+          cellIndicator = <span className={`${isClassic ? 'text-amber-500' : 'text-amber-300'} text-xs font-black select-none leading-none`}>⭐</span>;
         }
 
         // Green Home Stretch (row 7, cols 1-5) & Start (r=6, c=1)
         if (r === 7 && c >= 1 && c <= 5) {
-          cellStyle = 'border border-emerald-400/60 bg-emerald-500/30 shadow-[inset_0_0_8px_rgba(16,185,129,0.5)] rounded-[3px]';
-          cellIndicator = <span className="text-emerald-300 text-[10px] font-black opacity-70">➔</span>;
+          cellStyle = isClassic
+            ? 'border border-emerald-600/80 bg-emerald-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
+            : 'border border-emerald-400/60 bg-emerald-500/30 shadow-[inset_0_0_8px_rgba(16,185,129,0.5)] rounded-[4px]';
+          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-emerald-300 opacity-70'} text-[10px] font-black select-none`}>➔</span>;
         } else if (r === 6 && c === 1) {
-          cellStyle = 'border-2 border-emerald-400 bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.6)] rounded-[3px]';
-          cellIndicator = <span className="text-emerald-200 text-xs font-black select-none">🚀</span>;
+          cellStyle = isClassic
+            ? 'border border-emerald-700 bg-emerald-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
+            : 'border border-emerald-400 bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.6)] rounded-[4px]';
+          cellIndicator = <span className="text-emerald-50 text-xs font-black select-none leading-none">🚀</span>;
         }
 
         // Yellow Home Stretch (col 7, rows 1-5) & Start (r=1, c=8)
         if (c === 7 && r >= 1 && r <= 5) {
-          cellStyle = 'border border-amber-400/60 bg-amber-500/30 shadow-[inset_0_0_8px_rgba(245,158,11,0.5)] rounded-[3px]';
-          cellIndicator = <span className="text-amber-300 text-[10px] font-black opacity-70 transform rotate-90 inline-block">➔</span>;
+          cellStyle = isClassic
+            ? 'border border-amber-500/80 bg-amber-400 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.1)]'
+            : 'border border-amber-400/60 bg-amber-500/30 shadow-[inset_0_0_8px_rgba(245,158,11,0.5)] rounded-[4px]';
+          cellIndicator = <span className={`${isClassic ? 'text-amber-950/80' : 'text-amber-300 opacity-70'} text-[10px] font-black transform rotate-90 inline-block select-none`}>➔</span>;
         } else if (r === 1 && c === 8) {
-          cellStyle = 'border-2 border-amber-400 bg-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.6)] rounded-[3px]';
-          cellIndicator = <span className="text-amber-200 text-xs font-black select-none">🚀</span>;
+          cellStyle = isClassic
+            ? 'border border-amber-600 bg-amber-400 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.28)]'
+            : 'border border-amber-400 bg-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.6)] rounded-[4px]';
+          cellIndicator = <span className="text-amber-50 text-xs font-black select-none leading-none">🚀</span>;
         }
 
         // Red Home Stretch (col 7, rows 9-13) & Start (r=13, c=6)
         if (c === 7 && r >= 9 && r <= 13) {
-          cellStyle = 'border border-rose-400/60 bg-rose-500/30 shadow-[inset_0_0_8px_rgba(244,63,94,0.5)] rounded-[3px]';
-          cellIndicator = <span className="text-rose-300 text-[10px] font-black opacity-70 transform -rotate-90 inline-block">➔</span>;
+          cellStyle = isClassic
+            ? 'border border-rose-600/80 bg-rose-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
+            : 'border border-rose-400/60 bg-rose-500/30 shadow-[inset_0_0_8px_rgba(244,63,94,0.5)] rounded-[4px]';
+          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-rose-300 opacity-70'} text-[10px] font-black transform -rotate-90 inline-block select-none`}>➔</span>;
         } else if (r === 13 && c === 6) {
-          cellStyle = 'border-2 border-rose-400 bg-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.6)] rounded-[3px]';
-          cellIndicator = <span className="text-rose-200 text-xs font-black select-none">🚀</span>;
+          cellStyle = isClassic
+            ? 'border border-rose-700 bg-rose-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
+            : 'border border-rose-400 bg-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.6)] rounded-[4px]';
+          cellIndicator = <span className="text-rose-50 text-xs font-black select-none leading-none">🚀</span>;
         }
 
         // Blue Home Stretch (row 7, cols 9-13) & Start (r=8, c=13)
         if (r === 7 && c >= 9 && c <= 13) {
-          cellStyle = 'border border-cyan-400/60 bg-cyan-500/30 shadow-[inset_0_0_8px_rgba(6,182,212,0.5)] rounded-[3px]';
-          cellIndicator = <span className="text-cyan-300 text-[10px] font-black opacity-70 transform rotate-180 inline-block">➔</span>;
+          cellStyle = isClassic
+            ? 'border border-blue-600/80 bg-blue-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
+            : 'border border-cyan-400/60 bg-cyan-500/30 shadow-[inset_0_0_8px_rgba(6,182,212,0.5)] rounded-[4px]';
+          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-cyan-300 opacity-70'} text-[10px] font-black transform rotate-180 inline-block select-none`}>➔</span>;
         } else if (r === 8 && c === 13) {
-          cellStyle = 'border-2 border-cyan-400 bg-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.6)] rounded-[3px]';
-          cellIndicator = <span className="text-cyan-200 text-xs font-black select-none">🚀</span>;
+          cellStyle = isClassic
+            ? 'border border-blue-700 bg-blue-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
+            : 'border border-cyan-400 bg-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.6)] rounded-[4px]';
+          cellIndicator = <span className="text-blue-50 text-xs font-black select-none leading-none">🚀</span>;
         }
-
-        // Active tokens on this path cell
-        const tokensOnCell = tokens.filter(t => {
-          const tIndex = parseInt(t.id.split('-')[1]);
-          if (tIndex >= pieceCount) return false;
-          if (playerConfig[t.color] === 'none') return false;
-          if (t.position === -1 || t.position === 56) return false;
-
-          const absPos = getAbsolutePosition(t.color, t.position);
-          return absPos && absPos.r === r && absPos.c === c;
-        });
 
         cells.push(
           <div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className={`w-full h-full ${cellStyle} relative flex items-center justify-center p-0.5`}>
@@ -2937,27 +2940,6 @@ function LudoApp() {
                     'bg-amber-500 shadow-[0_0_8px_#f59e0b]'
                 }`} />
             ))}
-
-            {/* Neon Tokens on cell */}
-            {tokensOnCell.length > 0 && (
-              <div className="absolute inset-0 flex flex-wrap items-center justify-center content-center z-20 pointer-events-none p-0.5">
-                {tokensOnCell.map((token) => {
-                  const isTurn = turn === token.color;
-                  const isValidMove = isTurn && gameState === 'waiting_move' && getValidMoves(turn, diceValues[turn]).some(t => t.id === token.id);
-                  const sizeClass = tokensOnCell.length > 1 ? 'w-[52%] h-[52%] relative flex items-center justify-center' : 'w-full h-full relative flex items-center justify-center';
-
-                  return (
-                    <div
-                      key={token.id}
-                      onClick={() => { if (isValidMove) handleTokenClick(token); }}
-                      className={`${sizeClass} pointer-events-auto transition-all duration-200 cursor-pointer`}
-                    >
-                      <SpaceToken color={token.color} isSelectable={isValidMove} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         );
       }
@@ -2976,16 +2958,16 @@ function LudoApp() {
         {/* Center Home: 4 Distinct Color Quadrants (بيت القطع المنتهية) */}
         <div
           style={{ gridColumn: '7 / 10', gridRow: '7 / 10' }}
-          className="w-full h-full grid grid-cols-2 grid-rows-2 p-1.5 gap-1.5 relative z-10"
+          className={`w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 relative z-10 rounded-xl overflow-hidden ${isClassic ? 'bg-slate-900 border border-slate-700/80' : ''}`}
         >
           {/* Green Home Base (Top-Left) */}
-          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-emerald-950/70 border-2 border-emerald-500/60 shadow-[inset_0_0_15px_rgba(16,185,129,0.4)]">
+          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-emerald-950/90 border-2 border-emerald-500/70 shadow-[inset_0_0_15px_rgba(16,185,129,0.4)]">
             {Array.from({ length: 4 }).map((_, idx) => {
               const token = tokens.filter(t => t.color === 'green' && t.position === 56)[idx];
               return (
-                <div key={`green-home-${idx}`} className="w-full h-full rounded-lg bg-emerald-900/30 border border-emerald-500/40 flex items-center justify-center p-0.5">
+                <div key={`green-home-${idx}`} className="w-full h-full rounded-lg bg-emerald-900/40 border border-emerald-500/40 flex items-center justify-center p-0.5">
                   {token ? (
-                    <SpaceToken color="green" />
+                    <SpaceToken color="green" isAtHome={true} />
                   ) : (
                     <span className="text-[10px] opacity-40 select-none">🟢</span>
                   )}
@@ -2995,13 +2977,13 @@ function LudoApp() {
           </div>
 
           {/* Yellow Home Base (Top-Right) */}
-          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-amber-950/70 border-2 border-amber-500/60 shadow-[inset_0_0_15px_rgba(245,158,11,0.4)]">
+          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-amber-950/90 border-2 border-amber-500/70 shadow-[inset_0_0_15px_rgba(245,158,11,0.4)]">
             {Array.from({ length: 4 }).map((_, idx) => {
               const token = tokens.filter(t => t.color === 'yellow' && t.position === 56)[idx];
               return (
-                <div key={`yellow-home-${idx}`} className="w-full h-full rounded-lg bg-amber-900/30 border border-amber-500/40 flex items-center justify-center p-0.5">
+                <div key={`yellow-home-${idx}`} className="w-full h-full rounded-lg bg-amber-900/40 border border-amber-500/40 flex items-center justify-center p-0.5">
                   {token ? (
-                    <SpaceToken color="yellow" />
+                    <SpaceToken color="yellow" isAtHome={true} />
                   ) : (
                     <span className="text-[10px] opacity-40 select-none">🟡</span>
                   )}
@@ -3011,13 +2993,13 @@ function LudoApp() {
           </div>
 
           {/* Red Home Base (Bottom-Left) */}
-          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-rose-950/70 border-2 border-rose-500/60 shadow-[inset_0_0_15px_rgba(244,63,94,0.4)]">
+          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-rose-950/90 border-2 border-rose-500/70 shadow-[inset_0_0_15px_rgba(244,63,94,0.4)]">
             {Array.from({ length: 4 }).map((_, idx) => {
               const token = tokens.filter(t => t.color === 'red' && t.position === 56)[idx];
               return (
-                <div key={`red-home-${idx}`} className="w-full h-full rounded-lg bg-rose-900/30 border border-rose-500/40 flex items-center justify-center p-0.5">
+                <div key={`red-home-${idx}`} className="w-full h-full rounded-lg bg-rose-900/40 border border-rose-500/40 flex items-center justify-center p-0.5">
                   {token ? (
-                    <SpaceToken color="red" />
+                    <SpaceToken color="red" isAtHome={true} />
                   ) : (
                     <span className="text-[10px] opacity-40 select-none">🔴</span>
                   )}
@@ -3027,13 +3009,13 @@ function LudoApp() {
           </div>
 
           {/* Blue Home Base (Bottom-Right) */}
-          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-cyan-950/70 border-2 border-cyan-500/60 shadow-[inset_0_0_15px_rgba(6,182,212,0.4)]">
+          <div className="w-full h-full grid grid-cols-2 grid-rows-2 p-1 gap-1 rounded-xl bg-cyan-950/90 border-2 border-cyan-500/70 shadow-[inset_0_0_15px_rgba(6,182,212,0.4)]">
             {Array.from({ length: 4 }).map((_, idx) => {
               const token = tokens.filter(t => t.color === 'blue' && t.position === 56)[idx];
               return (
-                <div key={`blue-home-${idx}`} className="w-full h-full rounded-lg bg-cyan-900/30 border border-cyan-500/40 flex items-center justify-center p-0.5">
+                <div key={`blue-home-${idx}`} className="w-full h-full rounded-lg bg-cyan-900/40 border border-cyan-500/40 flex items-center justify-center p-0.5">
                   {token ? (
-                    <SpaceToken color="blue" />
+                    <SpaceToken color="blue" isAtHome={true} />
                   ) : (
                     <span className="text-[10px] opacity-40 select-none">🔵</span>
                   )}
@@ -3049,6 +3031,79 @@ function LudoApp() {
         </div>
       </>
     );
+  };
+
+  // Dedicated Top Overlay Layer for Active Track Pawns (always above all bases, cells, and center finish home)
+  const renderTokensLayer = () => {
+    const grouped: Record<string, { r: number; c: number; tokens: Token[] }> = {};
+
+    tokens.forEach((t) => {
+      const tIndex = parseInt(t.id.split('-')[1]);
+      if (tIndex >= pieceCount) return;
+      if (playerConfig[t.color] === 'none') return;
+      if (t.position === -1 || t.position === 56) return;
+
+      const absPos = getAbsolutePosition(t.color, t.position);
+      if (!absPos) return;
+
+      const key = `${absPos.r}-${absPos.c}`;
+      if (!grouped[key]) {
+        grouped[key] = { r: absPos.r, c: absPos.c, tokens: [] };
+      }
+      grouped[key].tokens.push(t);
+    });
+
+    return Object.entries(grouped).map(([key, cell]) => {
+      const count = cell.tokens.length;
+      const hasSelectable = cell.tokens.some(
+        (token) =>
+          turn === token.color &&
+          gameState === 'waiting_move' &&
+          getValidMoves(turn, diceValues[turn]).some((t) => t.id === token.id)
+      );
+
+      return (
+        <div
+          key={`tokens-${key}`}
+          style={{ gridRow: cell.r + 1, gridColumn: cell.c + 1 }}
+          className={`relative w-full h-full flex items-center justify-center p-0.5 pointer-events-none ${
+            hasSelectable ? 'z-40' : 'z-30'
+          }`}
+        >
+          <div
+            className={
+              count === 1
+                ? 'w-full h-full flex items-center justify-center'
+                : count === 2
+                ? 'w-full h-full grid grid-cols-2 grid-rows-1 items-center justify-items-center'
+                : 'w-full h-full grid grid-cols-2 grid-rows-2 items-center justify-items-center'
+            }
+          >
+            {cell.tokens.map((token) => {
+              const isTurn = turn === token.color;
+              const isValidMove =
+                isTurn &&
+                gameState === 'waiting_move' &&
+                getValidMoves(turn, diceValues[turn]).some((t) => t.id === token.id);
+
+              return (
+                <div
+                  key={token.id}
+                  onClick={() => {
+                    if (isValidMove) handleTokenClick(token);
+                  }}
+                  className={`w-full h-full relative flex items-center justify-center pointer-events-auto transition-all duration-200 ${
+                    isValidMove ? 'cursor-pointer z-40' : 'cursor-default'
+                  }`}
+                >
+                  <SpaceToken color={token.color} isSelectable={isValidMove} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    });
   };
 
 
@@ -3328,7 +3383,7 @@ function LudoApp() {
     return (
       <div
         key={`slot-${baseColor}-${slotIndex}`}
-        className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 border border-white/20 shadow-inner flex items-center justify-center overflow-hidden shrink-0"
+        className="relative w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-black/40 border border-white/25 shadow-inner flex items-center justify-center overflow-visible shrink-0"
       >
         {isTokenActive && isAtHome && token ? (
           <div
@@ -3420,8 +3475,8 @@ function LudoApp() {
       <div
         key={`corner-${baseColor}`}
         style={gridStyle}
-        className={`w-full h-full relative rounded-2xl sm:rounded-3xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 m-[2px] flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
-          isTurn ? 'ring-2 sm:ring-4 ring-amber-300/90 shadow-[0_0_20px_rgba(251,191,36,0.8)] z-20' : 'opacity-95 z-10'
+        className={`w-full h-full min-w-0 min-h-0 box-border relative rounded-xl sm:rounded-2xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
+          isTurn ? 'ring-2 ring-inset ring-amber-300 shadow-[inset_0_0_16px_rgba(251,191,36,0.55)] z-20' : 'z-10'
         }`}
       >
         {/* Active Impact (Gift animation) */}
@@ -4823,18 +4878,36 @@ function LudoApp() {
             dir="ltr"
             className="w-full max-w-[min(96vw,450px)] aspect-square rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.85)] border-2 border-emerald-800/80 my-auto relative shrink-0 z-10"
           >
+            {/* Bottom Layer: Unified 15x15 Board Grid with clean gaps separating all squares & bases */}
             <div
-              className="w-full h-full grid rounded-2xl overflow-hidden shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] border border-slate-700/60 bg-slate-950"
+              className={`w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 rounded-[14px] overflow-hidden shadow-[inset_0_0_20px_rgba(0,0,0,0.25)] ${
+                selectedBoardSkin === 'classic' ? 'bg-slate-200' : 'bg-slate-950'
+              }`}
               style={{
-                gridTemplateColumns: 'repeat(15, 1fr)',
-                gridTemplateRows: 'repeat(15, 1fr)',
-                backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin]?.image || '/classic_ludo_board.svg'}')`,
-                backgroundSize: '100% 100%',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat'
+                gridTemplateColumns: 'repeat(15, minmax(0, 1fr))',
+                gridTemplateRows: 'repeat(15, minmax(0, 1fr))',
+                ...(selectedBoardSkin !== 'classic' && BOARD_SKINS[selectedBoardSkin]?.image
+                  ? {
+                      backgroundImage: `url('${BOARD_SKINS[selectedBoardSkin].image}')`,
+                      backgroundSize: '100% 100%',
+                      backgroundPosition: 'center',
+                      backgroundRepeat: 'no-repeat',
+                    }
+                  : {}),
               }}
             >
               {renderBoard()}
+            </div>
+
+            {/* Top Layer: Active Pawns organized squarely in their 15x15 cells above all board layers */}
+            <div
+              className="absolute inset-0 w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 pointer-events-none z-30"
+              style={{
+                gridTemplateColumns: 'repeat(15, minmax(0, 1fr))',
+                gridTemplateRows: 'repeat(15, minmax(0, 1fr))',
+              }}
+            >
+              {renderTokensLayer()}
             </div>
           </div>
 
