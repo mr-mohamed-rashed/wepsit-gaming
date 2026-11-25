@@ -3,6 +3,36 @@
 import { Suspense, useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Token, PlayerColor, getAbsolutePosition, SAFE_CELLS, START_INDICES } from './ludoUtils';
+import {
+  StarShieldIcon,
+  StartLaunchIcon,
+  DirectionArrowIcon,
+  CrownIcon,
+  PeaceWarIcon,
+  PeaceDoveIcon,
+  WarSwordsIcon,
+  LockClosedIcon,
+  ChestRewardIcon,
+  CoinGoldIcon,
+  TrophyCupIcon,
+  SettingsGearIcon,
+  MailInboxIcon,
+  EmoteSmileIcon,
+  ChatBubbleIcon,
+  GridMenuIcon,
+  HelpQuestionIcon,
+  SpeakerToggleIcon,
+} from './ludoIcons';
+import {
+  joinLudoRoomRealtime,
+  subscribeLudoLobby,
+  syncLudoEconomyToServer,
+  isLudoRealtimeConfigured,
+  LudoRoomHandle,
+  LudoRoomEvent,
+  RoomPeerPresence,
+  LiveLobbyRoom,
+} from './ludoRealtime';
 
 export default function LudoPage() {
   return (
@@ -783,6 +813,8 @@ function LudoApp() {
   const queryWinRule = searchParams.get('winRule');
   const queryStake = searchParams.get('stake');
   const queryRoomName = searchParams.get('roomName');
+  const queryRoomId = searchParams.get('roomId');
+  const queryCoins = searchParams.get('goldCoins');
   const querySkin = (searchParams.get('skin') || searchParams.get('mode') || searchParams.get('theme')) as BoardTheme | null;
   const queryIsHost = searchParams.get('isHost') !== 'false';
   const queryHostId = searchParams.get('hostId') || (queryIsHost ? (queryUserId || '12842582') : 'host-1');
@@ -848,7 +880,28 @@ function LudoApp() {
   const [roomTitle, setRoomTitle] = useState<string>(
     queryRoomName || (lang === 'ar' ? 'غرفة لودو الملكية 👑' : 'Royal Ludo Room 👑')
   );
-  const [roomId, setRoomId] = useState<string>(() => `R-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [roomId, setRoomId] = useState<string>(() => queryRoomId || `R-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(false);
+  const [realtimePeers, setRealtimePeers] = useState<RoomPeerPresence[]>([]);
+  const [liveLobbyRooms, setLiveLobbyRooms] = useState<LiveLobbyRoom[]>([]);
+  const [voiceStatus, setVoiceStatus] = useState<{ micActive: boolean; peerCount: number; error?: string }>({
+    micActive: false,
+    peerCount: 0,
+  });
+  const roomRealtimeRef = useRef<LudoRoomHandle | null>(null);
+  const lobbyRealtimeRef = useRef<{ publishHostedRoom: (r: LiveLobbyRoom | null) => Promise<void>; unsubscribe: () => void } | null>(null);
+  const rollDiceRef = useRef<(forcedVal?: number, fromRemote?: boolean) => void>(() => {});
+  const [movingTokenId, setMovingTokenId] = useState<string | null>(null);
+  const [moveStepTick, setMoveStepTick] = useState<number>(0);
+  const [boardBurst, setBoardBurst] = useState<{
+    r: number;
+    c: number;
+    color: PlayerColor;
+    kind: 'capture' | 'finish';
+    key: number;
+  } | null>(null);
+  const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
+  const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [winner, setWinner] = useState<PlayerColor | null>(null);
   const [winReward, setWinReward] = useState<number>(0);
@@ -967,6 +1020,16 @@ function LudoApp() {
       };
       return next;
     });
+    void roomRealtimeRef.current?.updatePresence({ micSeat: slotIndex });
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'voice_seat',
+      senderId: myId,
+      username: myName,
+      avatar: myAvatar,
+      color: mySeatColor || 'blue',
+      seatIndex: slotIndex,
+      isMuted: isMicMuted,
+    });
     setStatusMessage(
       lang === 'ar'
         ? `🎤 تم انتقالك إلى مقعد المايك رقم ${slotIndex + 1}`
@@ -981,6 +1044,9 @@ function LudoApp() {
   const handleLeaveVoiceSeat = () => {
     const myId = userProfile?.id || '12842582';
     setVoiceMicSlots(prev => prev.map(s => (s && s.id === myId ? null : s)));
+    void roomRealtimeRef.current?.updatePresence({ micSeat: null });
+    void roomRealtimeRef.current?.voice.setMicEnabled(false);
+    setIsMicMuted(true);
     setStatusMessage(lang === 'ar' ? '⬇️ نزلت من مقعد المايك' : '⬇️ Left voice mic seat');
   };
 
@@ -1120,7 +1186,30 @@ function LudoApp() {
   };
 
   const toggleMic = () => {
-    setIsMicOn(prev => !prev);
+    const nextMuted = isMicOn; // if mic was on, mute it; if off, unmute it
+    setIsMicOn(!nextMuted);
+    setIsMicMuted(nextMuted);
+    void roomRealtimeRef.current?.voice.setMicEnabled(!nextMuted);
+    void roomRealtimeRef.current?.updatePresence({ isMuted: nextMuted });
+  };
+
+  const togglePlayerMicMute = async () => {
+    const nextMuted = !isMicMuted;
+    setIsMicMuted(nextMuted);
+    setIsMicOn(!nextMuted);
+    const ok = await roomRealtimeRef.current?.voice.setMicEnabled(!nextMuted);
+    void roomRealtimeRef.current?.updatePresence({ isMuted: nextMuted });
+    if (!nextMuted && ok === false && isRealtimeConnected) {
+      setStatusMessage(lang === 'ar' ? '🎙️ تعذر فتح المايكروفون (تأكد من السماح بالمايك)' : '🎙️ Microphone permission blocked');
+      setIsMicMuted(true);
+      setIsMicOn(false);
+    } else {
+      setStatusMessage(
+        nextMuted
+          ? (lang === 'ar' ? '🔇 تم كتم المايكروفون' : '🔇 Mic muted')
+          : (lang === 'ar' ? '🎙️ المايكروفون يعمل الآن مباشر' : '🎙️ Live mic active')
+      );
+    }
   };
 
   // Listen to audio element timeupdate and duration
@@ -1243,7 +1332,12 @@ function LudoApp() {
   };
 
   // --- Persistent Head-to-Head & Coins ---
-  const [playerCoins, setPlayerCoins] = useState<number>(500);
+  const [playerCoins, setPlayerCoins] = useState<number>(() => {
+    if (queryCoins && !Number.isNaN(Number(queryCoins))) {
+      return Math.max(0, parseInt(queryCoins, 10));
+    }
+    return 500;
+  });
   const [floatingCoinText, setFloatingCoinText] = useState<{ player: PlayerColor; text: string } | null>(null);
 
   const [h2hRecord, setH2hRecord] = useState<H2HRecord>({
@@ -1299,14 +1393,20 @@ function LudoApp() {
     };
   });
 
-  // Load Coins & H2H from localStorage
+  // Load Coins & H2H from localStorage (prefer URL goldCoins when synced from Dashboard)
   useEffect(() => {
     try {
-      const savedCoins = localStorage.getItem('ludo_coins_balance');
-      if (savedCoins) {
-        setPlayerCoins(parseInt(savedCoins, 10) || 500);
+      if (queryCoins && !Number.isNaN(Number(queryCoins))) {
+        const parsedQueryCoins = parseInt(queryCoins, 10);
+        setPlayerCoins(parsedQueryCoins);
+        localStorage.setItem('ludo_coins_balance', parsedQueryCoins.toString());
       } else {
-        localStorage.setItem('ludo_coins_balance', '500');
+        const savedCoins = localStorage.getItem('ludo_coins_balance');
+        if (savedCoins) {
+          setPlayerCoins(parseInt(savedCoins, 10) || 500);
+        } else {
+          localStorage.setItem('ludo_coins_balance', '500');
+        }
       }
 
       const savedH2H = localStorage.getItem('ludo_h2h_record');
@@ -1360,7 +1460,7 @@ function LudoApp() {
   const [rollingDicePlayer, setRollingDicePlayer] = useState<PlayerColor | null>(null);
   const [turn, setTurn] = useState<PlayerColor>('blue'); // You (blue) start first
 
-  const handleTokenClickRef = useRef<(token: Token) => void>(() => { });
+  const handleTokenClickRef = useRef<(token: Token, fromRemote?: boolean, forcedDiceVal?: number) => void>(() => { });
 
   const [playerEmotes, setPlayerEmotes] = useState<{
     [key in PlayerColor]: {
@@ -1422,9 +1522,28 @@ function LudoApp() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [quickInputText, setQuickInputText] = useState('');
 
-  const addChatMessage = (text: string, type: 'chat' | 'gift' | 'system' | 'news' = 'system', user?: string) => {
+  const addChatMessage = (text: string, type: 'chat' | 'gift' | 'system' | 'news' = 'system', user?: string, broadcast = false) => {
     setChatMessages(prev => [{ id: Date.now().toString(), text, type: type as any, user }, ...prev.slice(0, 19)]);
+    if (broadcast && type === 'chat') {
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'chat_msg',
+        senderId: userProfile?.id || 'guest',
+        senderName: user || userProfile?.username || 'Player',
+        text,
+        ts: Date.now(),
+      });
+    }
   };
+
+  const mySeatColor: PlayerColor | null = useMemo(() => {
+    if (userRole === 'spectator') return null;
+    const myId = userProfile?.id;
+    const colors: PlayerColor[] = ['blue', 'green', 'red', 'yellow'];
+    for (const c of colors) {
+      if (tableSeats[c]?.id === myId) return c;
+    }
+    return 'blue';
+  }, [tableSeats, userProfile?.id, userRole]);
 
   const getPlayerName = (color: PlayerColor) => {
     if (playerConfig[color] === 'human') {
@@ -1533,12 +1652,23 @@ function LudoApp() {
     returnToRoom();
   };
 
-  const handleExitGame = () => {
+  const confirmExitGame = () => {
+    setShowExitConfirmModal(false);
+    roomRealtimeRef.current?.leave();
+    roomRealtimeRef.current = null;
     if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
       window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
     } else {
       resetGame();
     }
+  };
+
+  const handleExitGame = () => {
+    if (gameStarted && !winner) {
+      setShowExitConfirmModal(true);
+      return;
+    }
+    confirmExitGame();
   };
 
   const isHost = userProfile?.id === roomHostId;
@@ -1547,6 +1677,7 @@ function LudoApp() {
   const canControlMatch = isHost || isDeputy;
 
   const joinRoomFromList = (room: PublicLudoRoom, role: 'player' | 'spectator') => {
+    setRoomId(room.id);
     setRoomTitle(lang === 'ar' ? room.nameAr : room.nameEn);
     setRoomStake(room.entryFee);
     setRoomHostId(room.id);
@@ -1742,6 +1873,161 @@ function LudoApp() {
       startMatchFromRoom();
     }
   }, []);
+
+  // Keep WebRTC speaker mute synced with game audio mute button
+  useEffect(() => {
+    roomRealtimeRef.current?.voice.setSpeakerMuted(isMuted);
+  }, [isMuted]);
+
+  // Live Multiplayer Room + WebRTC Voice Channel Subscription (Supabase Realtime)
+  useEffect(() => {
+    const myId = userProfile?.id || '12842582';
+    const myName = userProfile?.username || 'Ali';
+    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
+
+    const handle = joinLudoRoomRealtime({
+      roomId,
+      self: {
+        id: myId,
+        username: myName,
+        avatar: myAvatar,
+        isHost: myId === roomHostId,
+        isMuted: isMicMuted,
+        joinedAt: Date.now(),
+      },
+      onConnectionChange: (connected) => {
+        setIsRealtimeConnected(connected);
+      },
+      onVoiceStatus: (status) => {
+        setVoiceStatus(status);
+      },
+      onPresenceSync: (peers) => {
+        setRealtimePeers(peers);
+        if (peers.length > 1) {
+          const seatOrder: PlayerColor[] = playerCount === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
+          setTableSeats((prev) => {
+            const next = { ...prev };
+            seatOrder.forEach((c, idx) => {
+              const p = peers[idx];
+              if (p) {
+                next[c] = {
+                  id: p.id,
+                  name: p.username,
+                  avatar: p.avatar || '/laugh_emote.png',
+                  isBot: false,
+                  isHost: p.isHost || idx === 0,
+                  isDeputy: false,
+                  isMuted: p.isMuted,
+                };
+              }
+            });
+            return next;
+          });
+          setPlayerConfig((prev) => {
+            const next = { ...prev };
+            seatOrder.forEach((c, idx) => {
+              if (peers[idx]) next[c] = 'human';
+            });
+            return next;
+          });
+        }
+      },
+      onEvent: (ev: LudoRoomEvent) => {
+        if (ev.type === 'dice_roll') {
+          rollDiceRef.current(ev.value, true);
+        } else if (ev.type === 'token_move') {
+          const targetId = `${ev.color}-${ev.tokenId}`;
+          handleTokenClickRef.current({ id: targetId, color: ev.color, position: 0 }, true, ev.roll);
+        } else if (ev.type === 'chat_msg') {
+          setChatMessages((prev) => [
+            { id: `${ev.ts}-${ev.senderId}`, text: ev.text, type: 'chat', user: ev.senderName },
+            ...prev.slice(0, 19),
+          ]);
+        } else if (ev.type === 'voice_seat') {
+          setVoiceMicSlots((prev) => {
+            const next = prev.map((s) => (s && s.id === ev.senderId ? null : s));
+            if (ev.seatIndex >= 0 && ev.seatIndex < next.length) {
+              next[ev.seatIndex] = {
+                id: ev.senderId,
+                name: ev.username,
+                avatar: ev.avatar || '/laugh_emote.png',
+              };
+            }
+            return next;
+          });
+        } else if (ev.type === 'gift_sent') {
+          setFlyingGift({
+            id: Date.now().toString(),
+            from: ev.senderColor,
+            to: ev.targetColor,
+            icon: ev.emoji,
+            name: ev.label,
+          });
+          setTimeout(() => {
+            setFlyingGift(null);
+            playGiftSound(ev.mode === 'war' ? 'boom' : 'chime');
+            setActiveImpacts((prev) => ({
+              ...prev,
+              [ev.targetColor]: {
+                icon: ev.emoji,
+                title: ev.label,
+                fromName: ev.senderName,
+                effect: ev.label,
+                id: Date.now(),
+              },
+            }));
+            setTimeout(() => {
+              setActiveImpacts((prev) => {
+                const n = { ...prev };
+                delete n[ev.targetColor];
+                return n;
+              });
+            }, 3000);
+          }, 550);
+        }
+      },
+    });
+
+    roomRealtimeRef.current = handle;
+    return () => {
+      handle.leave();
+      if (roomRealtimeRef.current === handle) roomRealtimeRef.current = null;
+    };
+  }, [roomId, userProfile?.id]);
+
+  // Global Lobby Live Rooms Subscription
+  useEffect(() => {
+    const lobby = subscribeLudoLobby(
+      {
+        id: userProfile?.id || '12842582',
+        username: userProfile?.username || 'Ali',
+        avatar: userProfile?.avatar_url || '/laugh_emote.png',
+      },
+      (rooms) => setLiveLobbyRooms(rooms)
+    );
+    lobbyRealtimeRef.current = lobby;
+
+    if (queryIsHost && queryRoomId) {
+      void lobby.publishHostedRoom({
+        id: queryRoomId,
+        name: roomTitle,
+        hostId: userProfile?.id || '12842582',
+        hostName: userProfile?.username || 'Ali',
+        hostAvatar: userProfile?.avatar_url || '/laugh_emote.png',
+        stake: roomStake,
+        maxPlayers: playerCount,
+        piecesCount: pieceCount,
+        winRule,
+        status: gameStarted ? 'in_game' : 'waiting',
+        currentPlayers: Math.max(1, realtimePeers.length || 1),
+      });
+    }
+
+    return () => {
+      lobby.unsubscribe();
+      lobbyRealtimeRef.current = null;
+    };
+  }, [userProfile?.id, roomId, gameStarted]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -2116,9 +2402,12 @@ function LudoApp() {
     let isGameWon = false;
     let winnerColor: PlayerColor | null = null;
 
+    let captureCoords: { r: number; c: number } | null = null;
+
     setTokens(prev => {
       const newTokens = prev.map(t => ({ ...t }));
-      const targetToken = newTokens.find(t => t.id === token.id)!;
+      const targetToken = newTokens.find(t => t.id === token.id);
+      if (!targetToken) return prev;
 
       if (finalPos >= 0 && finalPos <= 50) {
         const absPos = getAbsolutePosition(targetToken.color, finalPos);
@@ -2142,6 +2431,7 @@ function LudoApp() {
             Object.values(oppGroups).forEach(group => {
               if (group.length === 1) {
                 ateOpponent = true;
+                captureCoords = absPos;
                 group[0].position = -1;
               }
             });
@@ -2161,20 +2451,43 @@ function LudoApp() {
       return newTokens;
     });
 
+    if (ateOpponent && captureCoords) {
+      setBoardBurst({ ...(captureCoords as { r: number; c: number }), color: token.color, kind: 'capture', key: Date.now() });
+      setTimeout(() => setBoardBurst(null), 580);
+    } else if (justFinished) {
+      setBoardBurst({ r: 7, c: 7, color: token.color, kind: 'finish', key: Date.now() });
+      setTimeout(() => setBoardBurst(null), 580);
+    }
+
     setTimeout(() => {
       if (isGameWon && winnerColor) {
         playVictorySound();
         setWinner(winnerColor);
-        const isHumanWinner = playerConfig[winnerColor] === 'human';
-        const reward = isHumanWinner ? 150 : 50;
+        const isMyWin = winnerColor === mySeatColor;
+        const reward = isMyWin ? Math.max(150, roomStake * (playerCount === 2 ? 2 : 4)) : 0;
         setWinReward(reward);
 
-        // Update Coins in state & localStorage
-        setPlayerCoins(prev => {
-          const nextCoins = prev + reward;
-          try { localStorage.setItem('ludo_coins_balance', nextCoins.toString()); } catch (e) {}
-          return nextCoins;
-        });
+        // Update Coins in state, localStorage, and Supabase/Dashboard
+        if (reward > 0) {
+          setPlayerCoins(prev => {
+            const nextCoins = prev + reward;
+            try { localStorage.setItem('ludo_coins_balance', nextCoins.toString()); } catch (e) {}
+            void syncLudoEconomyToServer({
+              userId: userProfile?.id,
+              newCoins: nextCoins,
+              deltaCoins: reward,
+              matchResult: { roomId, isWinner: true, stake: roomStake, reward },
+            });
+            return nextCoins;
+          });
+        } else {
+          void syncLudoEconomyToServer({
+            userId: userProfile?.id,
+            newCoins: playerCoins,
+            deltaCoins: 0,
+            matchResult: { roomId, isWinner: false, stake: roomStake, reward: 0 },
+          });
+        }
 
         // Update Persistent Head-to-Head record
         setH2hRecord(prev => {
@@ -2270,38 +2583,56 @@ function LudoApp() {
     }, 200);
   };
 
-  const handleTokenClick = (token: Token) => {
+  const handleTokenClick = (token: Token, fromRemote = false, forcedDiceVal?: number) => {
     if (gameState !== 'waiting_move' || token.color !== turn || isAnimatingRef.current || winner) return;
+    if (!fromRemote && isRealtimeConnected && playerConfig[token.color] !== 'bot' && mySeatColor !== token.color) return;
 
-    const diceVal = diceValues[turn];
+    const liveToken = tokens.find(t => t.id === token.id) || token;
+    const diceVal = forcedDiceVal ?? diceValues[turn];
     const validMoves = getValidMoves(turn, diceVal);
-    if (!validMoves.find(t => t.id === token.id)) return;
+    if (!validMoves.find(t => t.id === liveToken.id)) return;
+
+    if (!fromRemote && isRealtimeConnected) {
+      const idx = parseInt(liveToken.id.split('-')[1], 10);
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'token_move',
+        senderId: userProfile?.id || 'guest',
+        color: liveToken.color,
+        tokenId: idx,
+        roll: diceVal,
+        seq: Date.now(),
+      });
+    }
 
     isAnimatingRef.current = true;
     setIsAnimating(true);
+    setMovingTokenId(liveToken.id);
     setFootprints([]);
 
-    if (token.position === -1 && diceVal === 6) {
+    if (liveToken.position === -1 && diceVal === 6) {
       setTokens(prev => {
         const newTokens = prev.map(t => ({ ...t }));
-        const targetToken = newTokens.find(t => t.id === token.id)!;
-        targetToken.position = 0;
+        const targetToken = newTokens.find(t => t.id === liveToken.id);
+        if (targetToken) targetToken.position = 0;
         return newTokens;
       });
+      setMoveStepTick(c => c + 1);
       playSuccessSound();
 
       setTimeout(() => {
-        finalizeTurnAfterMove(token, 0, diceVal);
-      }, 500);
+        setMovingTokenId(null);
+        finalizeTurnAfterMove(liveToken, 0, diceVal);
+      }, 360);
       return;
     }
 
     let stepsLeft = diceVal;
-    let currentPos = token.position;
+    let currentPos = liveToken.position;
 
     const performStep = () => {
       if (stepsLeft === 0) {
-        finalizeTurnAfterMove(token, currentPos, diceVal);
+        setMovingTokenId(null);
+        finalizeTurnAfterMove(liveToken, currentPos, diceVal);
         return;
       }
 
@@ -2310,18 +2641,19 @@ function LudoApp() {
 
       setTokens(prev => {
         const newTokens = prev.map(t => ({ ...t }));
-        const targetToken = newTokens.find(t => t.id === token.id)!;
-        targetToken.position = currentPos;
+        const targetToken = newTokens.find(t => t.id === liveToken.id);
+        if (targetToken) targetToken.position = currentPos;
         return newTokens;
       });
+      setMoveStepTick(c => c + 1);
 
-      const absPos = getAbsolutePosition(token.color, currentPos);
+      const absPos = getAbsolutePosition(liveToken.color, currentPos);
       if (absPos) {
-        setFootprints(prev => [...prev.slice(-1), { ...absPos, color: token.color, key: `${absPos.r}-${absPos.c}-${currentPos}` }]);
+        setFootprints(prev => [...prev.slice(-1), { ...absPos, color: liveToken.color, key: `${absPos.r}-${absPos.c}-${currentPos}` }]);
       }
 
       playStepSound();
-      setTimeout(performStep, 260);
+      setTimeout(performStep, 200);
     };
 
     performStep();
@@ -2329,19 +2661,34 @@ function LudoApp() {
 
   handleTokenClickRef.current = handleTokenClick;
 
-  const rollDice = () => {
+  const rollDice = (forcedVal?: number, fromRemote = false) => {
     if (rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || winner) return;
+    if (!fromRemote && isRealtimeConnected && playerConfig[turn] !== 'bot' && mySeatColor !== turn) return;
+
     setRollingDicePlayer(turn);
     playDiceRollSound();
 
-    setTimeout(() => {
-      let finalVal = Math.floor(Math.random() * 6) + 1;
-
+    let rolledVal = forcedVal;
+    if (rolledVal === undefined) {
+      rolledVal = Math.floor(Math.random() * 6) + 1;
       if (consecutiveSixes === 0) {
-        if (finalVal !== 6 && Math.random() < 0.35) finalVal = 6;
-      } else if (consecutiveSixes > 0 && finalVal === 6) {
-        if (Math.random() < 0.6) finalVal = Math.floor(Math.random() * 5) + 1;
+        if (rolledVal !== 6 && Math.random() < 0.35) rolledVal = 6;
+      } else if (consecutiveSixes > 0 && rolledVal === 6) {
+        if (Math.random() < 0.6) rolledVal = Math.floor(Math.random() * 5) + 1;
       }
+      if (!fromRemote && isRealtimeConnected) {
+        void roomRealtimeRef.current?.sendEvent({
+          type: 'dice_roll',
+          senderId: userProfile?.id || 'guest',
+          color: turn,
+          value: rolledVal,
+          seq: Date.now(),
+        });
+      }
+    }
+
+    const finalVal = rolledVal;
+    setTimeout(() => {
       setDiceValues(prev => ({ ...prev, [turn]: finalVal }));
 
       if (finalVal === 6) {
@@ -2401,9 +2748,13 @@ function LudoApp() {
       } else if (allSamePosition) {
         setRollingDicePlayer(null);
         setGameState('waiting_move');
-        setTimeout(() => {
-          handleTokenClickRef.current(validMoves[0]);
-        }, 600);
+        const isLocalController =
+          playerConfig[turn] === 'bot' ? (!isRealtimeConnected || isHost) : (!isRealtimeConnected || mySeatColor === turn);
+        if (isLocalController) {
+          setTimeout(() => {
+            handleTokenClickRef.current(validMoves[0]);
+          }, 500);
+        }
       } else {
         setRollingDicePlayer(null);
         setGameState('waiting_move');
@@ -2411,13 +2762,15 @@ function LudoApp() {
     }, 600);
   };
 
-  // Bot autoplay logic
+  rollDiceRef.current = rollDice;
+
+  // Bot autoplay logic (host-authoritative when room is online)
   useEffect(() => {
-    if (gameStarted && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner) {
+    if (gameStarted && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && (!isRealtimeConnected || isHost)) {
       if (gameState === 'waiting_roll') {
         const timer = setTimeout(() => {
           rollDice();
-        }, 1500);
+        }, 1200);
         return () => clearTimeout(timer);
       } else if (gameState === 'waiting_move') {
         const timer = setTimeout(() => {
@@ -2426,17 +2779,20 @@ function LudoApp() {
             const moveOut = validMoves.find(t => t.position === -1);
             handleTokenClick(moveOut || validMoves[Math.floor(Math.random() * validMoves.length)]);
           }
-        }, 1000);
+        }, 800);
         return () => clearTimeout(timer);
       }
     }
-  }, [turn, rollingDicePlayer, gameStarted, playerConfig, gameState, diceValues, winner]);
+  }, [turn, rollingDicePlayer, gameStarted, playerConfig, gameState, diceValues, winner, isRealtimeConnected, isHost]);
 
   // ⏱️ Fast Turn Countdown Timer (10 seconds total, CSS-driven 60fps ring + single timeout for zero React re-renders)
   const TURN_TIMEOUT_SECONDS = 10;
 
   useEffect(() => {
     if (!gameStarted || winner || isAnimating) return;
+    const isMyControlledTurn =
+      playerConfig[turn] === 'bot' ? (!isRealtimeConnected || isHost) : (!isRealtimeConnected || mySeatColor === turn);
+    if (!isMyControlledTurn) return;
 
     const timeout = setTimeout(() => {
       // Auto-roll if waiting for roll
@@ -2460,7 +2816,7 @@ function LudoApp() {
     }, TURN_TIMEOUT_SECONDS * 1000);
 
     return () => clearTimeout(timeout);
-  }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues]);
+  }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, isHost, mySeatColor]);
 
   const SpaceToken = useMemo(() => {
     const theme = selectedBoardSkin || 'classic';
@@ -2935,7 +3291,7 @@ function LudoApp() {
           cellStyle = isClassic
             ? 'border border-amber-400 bg-amber-50 rounded-[4px] shadow-[inset_0_0_8px_rgba(245,158,11,0.22)]'
             : 'border border-amber-400/80 bg-amber-500/20 shadow-[0_0_10px_rgba(251,191,36,0.4),inset_0_0_6px_rgba(251,191,36,0.3)] rounded-[4px]';
-          cellIndicator = <span className={`${isClassic ? 'text-amber-500' : 'text-amber-300'} text-xs font-black select-none leading-none`}>⭐</span>;
+          cellIndicator = <StarShieldIcon className={`${isClassic ? 'text-amber-500' : 'text-amber-300'} w-3.5 h-3.5 select-none`} />;
         }
 
         // Green Home Stretch (row 7, cols 1-5) & Start (r=6, c=1)
@@ -2943,12 +3299,12 @@ function LudoApp() {
           cellStyle = isClassic
             ? 'border border-emerald-600/80 bg-emerald-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
             : 'border border-emerald-400/60 bg-emerald-500/30 shadow-[inset_0_0_8px_rgba(16,185,129,0.5)] rounded-[4px]';
-          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-emerald-300 opacity-70'} text-[10px] font-black select-none`}>➔</span>;
+          cellIndicator = <DirectionArrowIcon angle={0} className={`${isClassic ? 'text-white/85' : 'text-emerald-300 opacity-75'} w-3 h-3 select-none`} />;
         } else if (r === 6 && c === 1) {
           cellStyle = isClassic
             ? 'border border-emerald-700 bg-emerald-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
             : 'border border-emerald-400 bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.6)] rounded-[4px]';
-          cellIndicator = <span className="text-emerald-50 text-xs font-black select-none leading-none">🚀</span>;
+          cellIndicator = <StartLaunchIcon className="text-emerald-50 w-3.5 h-3.5 select-none" />;
         }
 
         // Yellow Home Stretch (col 7, rows 1-5) & Start (r=1, c=8)
@@ -2956,12 +3312,12 @@ function LudoApp() {
           cellStyle = isClassic
             ? 'border border-amber-500/80 bg-amber-400 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.1)]'
             : 'border border-amber-400/60 bg-amber-500/30 shadow-[inset_0_0_8px_rgba(245,158,11,0.5)] rounded-[4px]';
-          cellIndicator = <span className={`${isClassic ? 'text-amber-950/80' : 'text-amber-300 opacity-70'} text-[10px] font-black transform rotate-90 inline-block select-none`}>➔</span>;
+          cellIndicator = <DirectionArrowIcon angle={90} className={`${isClassic ? 'text-amber-950/80' : 'text-amber-300 opacity-75'} w-3 h-3 select-none`} />;
         } else if (r === 1 && c === 8) {
           cellStyle = isClassic
             ? 'border border-amber-600 bg-amber-400 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.28)]'
             : 'border border-amber-400 bg-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.6)] rounded-[4px]';
-          cellIndicator = <span className="text-amber-50 text-xs font-black select-none leading-none">🚀</span>;
+          cellIndicator = <StartLaunchIcon className="text-amber-50 w-3.5 h-3.5 rotate-90 select-none" />;
         }
 
         // Red Home Stretch (col 7, rows 9-13) & Start (r=13, c=6)
@@ -2969,12 +3325,12 @@ function LudoApp() {
           cellStyle = isClassic
             ? 'border border-rose-600/80 bg-rose-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
             : 'border border-rose-400/60 bg-rose-500/30 shadow-[inset_0_0_8px_rgba(244,63,94,0.5)] rounded-[4px]';
-          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-rose-300 opacity-70'} text-[10px] font-black transform -rotate-90 inline-block select-none`}>➔</span>;
+          cellIndicator = <DirectionArrowIcon angle={-90} className={`${isClassic ? 'text-white/85' : 'text-rose-300 opacity-75'} w-3 h-3 select-none`} />;
         } else if (r === 13 && c === 6) {
           cellStyle = isClassic
             ? 'border border-rose-700 bg-rose-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
             : 'border border-rose-400 bg-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.6)] rounded-[4px]';
-          cellIndicator = <span className="text-rose-50 text-xs font-black select-none leading-none">🚀</span>;
+          cellIndicator = <StartLaunchIcon className="text-rose-50 w-3.5 h-3.5 -rotate-90 select-none" />;
         }
 
         // Blue Home Stretch (row 7, cols 9-13) & Start (r=8, c=13)
@@ -2982,12 +3338,12 @@ function LudoApp() {
           cellStyle = isClassic
             ? 'border border-blue-600/80 bg-blue-500 rounded-[4px] shadow-[inset_0_0_8px_rgba(0,0,0,0.12)]'
             : 'border border-cyan-400/60 bg-cyan-500/30 shadow-[inset_0_0_8px_rgba(6,182,212,0.5)] rounded-[4px]';
-          cellIndicator = <span className={`${isClassic ? 'text-white/85' : 'text-cyan-300 opacity-70'} text-[10px] font-black transform rotate-180 inline-block select-none`}>➔</span>;
+          cellIndicator = <DirectionArrowIcon angle={180} className={`${isClassic ? 'text-white/85' : 'text-cyan-300 opacity-75'} w-3 h-3 select-none`} />;
         } else if (r === 8 && c === 13) {
           cellStyle = isClassic
             ? 'border border-blue-700 bg-blue-500 rounded-[4px] shadow-[inset_0_0_10px_rgba(255,255,255,0.25)]'
             : 'border border-cyan-400 bg-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.6)] rounded-[4px]';
-          cellIndicator = <span className="text-blue-50 text-xs font-black select-none leading-none">🚀</span>;
+          cellIndicator = <StartLaunchIcon className="text-blue-50 w-3.5 h-3.5 rotate-180 select-none" />;
         }
 
         cells.push(
@@ -3084,19 +3440,19 @@ function LudoApp() {
 
           {/* Tiny center crown emblem - fits cleanly in the intersection without covering any base */}
           <div className="absolute inset-0 m-auto w-7 h-7 rounded-full bg-slate-950/90 border-2 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.8)] flex items-center justify-center pointer-events-none select-none z-20">
-            <span className="text-[11px] font-black text-amber-300">👑</span>
+            <CrownIcon className="w-4 h-4 text-amber-300" />
           </div>
         </div>
       </>
     );
   };
 
-  // Dedicated Top Overlay Layer for Active Track Pawns (always above all bases, cells, and center finish home)
+  // Dedicated Top Overlay Layer for Active Track Pawns (smooth 200ms percentage hop interpolation + capture bursts)
   const renderTokensLayer = () => {
     const grouped: Record<string, { r: number; c: number; tokens: Token[] }> = {};
 
     tokens.forEach((t) => {
-      const tIndex = parseInt(t.id.split('-')[1]);
+      const tIndex = parseInt(t.id.split('-')[1], 10);
       if (tIndex >= pieceCount) return;
       if (playerConfig[t.color] === 'none') return;
       if (t.position === -1 || t.position === 56) return;
@@ -3111,14 +3467,75 @@ function LudoApp() {
       grouped[key].tokens.push(t);
     });
 
-    const footprintDots = footprints.map(f => (
+    const validMovesNow = gameState === 'waiting_move' ? getValidMoves(turn, diceValues[turn]) : [];
+
+    const activeTokenItems = Object.values(grouped).flatMap((cell) => {
+      const count = cell.tokens.length;
+      return cell.tokens.map((token, idx) => {
+        const isTurn = turn === token.color;
+        const isValidMove =
+          isTurn &&
+          (!isRealtimeConnected || playerConfig[token.color] === 'bot' || mySeatColor === token.color) &&
+          validMovesNow.some((t) => t.id === token.id);
+        const isStepping = movingTokenId === token.id;
+
+        let offsetX = 0;
+        let offsetY = 0;
+        let scaleFactor = 1;
+        if (count === 2) {
+          offsetX = idx === 0 ? -19 : 19;
+          scaleFactor = 0.84;
+        } else if (count >= 3) {
+          offsetX = idx % 2 === 0 ? -18 : 18;
+          offsetY = idx < 2 ? -18 : 18;
+          scaleFactor = 0.72;
+        }
+
+        const leftPct = ((cell.c + 0.5) / 15) * 100;
+        const topPct = ((cell.r + 0.5) / 15) * 100;
+
+        return (
+          <div
+            key={token.id}
+            onClick={() => {
+              if (isValidMove) handleTokenClick(token);
+            }}
+            style={{
+              left: `${leftPct}%`,
+              top: `${topPct}%`,
+              width: `${100 / 15}%`,
+              height: `${100 / 15}%`,
+              transform: `translate(-50%, -50%) translate(${offsetX}%, ${offsetY}%) scale(${scaleFactor})`,
+            }}
+            className={`absolute flex items-center justify-center pointer-events-auto transition-[left,top,transform] duration-200 ease-out will-change-[left,top] ${
+              isStepping ? 'z-50' : isValidMove ? 'cursor-pointer z-40' : 'cursor-default z-30'
+            }`}
+          >
+            <div
+              key={isStepping ? `step-${moveStepTick}` : 'idle'}
+              className={`w-full h-full flex items-center justify-center ${isStepping ? 'animate-pawn-hop' : ''}`}
+            >
+              <SpaceToken color={token.color} isSelectable={isValidMove} />
+            </div>
+          </div>
+        );
+      });
+    });
+
+    const footprintDots = footprints.map((f) => (
       <div
         key={f.key}
-        style={{ gridRow: f.r + 1, gridColumn: f.c + 1 }}
-        className="w-full h-full flex items-center justify-center pointer-events-none z-20"
+        style={{
+          left: `${((f.c + 0.5) / 15) * 100}%`,
+          top: `${((f.r + 0.5) / 15) * 100}%`,
+          width: `${100 / 15}%`,
+          height: `${100 / 15}%`,
+          transform: 'translate(-50%, -50%)',
+        }}
+        className="absolute flex items-center justify-center pointer-events-none z-20"
       >
         <div
-          className={`w-[38%] h-[38%] rounded-full opacity-35 ${
+          className={`w-[36%] h-[36%] rounded-full opacity-35 ${
             f.color === 'red' ? 'bg-rose-500' :
             f.color === 'green' ? 'bg-emerald-500' :
             f.color === 'blue' ? 'bg-cyan-500' :
@@ -3128,60 +3545,22 @@ function LudoApp() {
       </div>
     ));
 
-    return [
-      ...footprintDots,
-      ...Object.entries(grouped).map(([key, cell]) => {
-      const count = cell.tokens.length;
-      const hasSelectable = cell.tokens.some(
-        (token) =>
-          turn === token.color &&
-          gameState === 'waiting_move' &&
-          getValidMoves(turn, diceValues[turn]).some((t) => t.id === token.id)
-      );
+    const burstElement = boardBurst ? (
+      <div
+        key={`burst-${boardBurst.key}`}
+        style={{
+          left: `${((boardBurst.c + 0.5) / 15) * 100}%`,
+          top: `${((boardBurst.r + 0.5) / 15) * 100}%`,
+          width: `${100 / 15}%`,
+          height: `${100 / 15}%`,
+        }}
+        className={`absolute rounded-full border-4 pointer-events-none z-50 animate-ludo-burst ${
+          boardBurst.kind === 'capture' ? 'border-rose-400 bg-rose-500/35' : 'border-amber-300 bg-amber-400/40'
+        }`}
+      />
+    ) : null;
 
-      return (
-        <div
-          key={`tokens-${key}`}
-          style={{ gridRow: cell.r + 1, gridColumn: cell.c + 1 }}
-          className={`relative w-full h-full flex items-center justify-center p-0 pointer-events-none ${
-            hasSelectable ? 'z-40' : 'z-30'
-          }`}
-        >
-          <div
-            className={
-              count === 1
-                ? 'w-full h-full flex items-center justify-center'
-                : count === 2
-                ? 'w-full h-full grid grid-cols-2 grid-rows-1 items-center justify-items-center'
-                : 'w-full h-full grid grid-cols-2 grid-rows-2 items-center justify-items-center'
-            }
-          >
-            {cell.tokens.map((token) => {
-              const isTurn = turn === token.color;
-              const isValidMove =
-                isTurn &&
-                gameState === 'waiting_move' &&
-                getValidMoves(turn, diceValues[turn]).some((t) => t.id === token.id);
-
-              return (
-                <div
-                  key={token.id}
-                  onClick={() => {
-                    if (isValidMove) handleTokenClick(token);
-                  }}
-                  className={`w-full h-full relative flex items-center justify-center pointer-events-auto ${
-                    isValidMove ? 'cursor-pointer z-40' : 'cursor-default'
-                  }`}
-                >
-                  <SpaceToken color={token.color} isSelectable={isValidMove} />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    }),
-    ];
+    return [...footprintDots, burstElement, ...activeTokenItems];
   };
 
 
@@ -3195,12 +3574,28 @@ function LudoApp() {
       return;
     }
 
-    // Deduct coins
+    // Deduct coins & sync to server
     const updatedCoins = playerCoins - gift.cost;
     setPlayerCoins(updatedCoins);
     try {
       localStorage.setItem('ludo_coins_balance', updatedCoins.toString());
     } catch (e) {}
+    void syncLudoEconomyToServer({
+      userId: userProfile?.id,
+      newCoins: updatedCoins,
+      deltaCoins: -gift.cost,
+    });
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'gift_sent',
+      senderId: userProfile?.id || 'guest',
+      senderName: getPlayerName(mySeatColor || 'blue'),
+      senderColor: mySeatColor || 'blue',
+      targetColor,
+      emoji: gift.icon,
+      label: lang === 'ar' ? gift.nameAr : gift.nameEn,
+      price: gift.cost,
+      mode: gift.category === 'prank' ? 'war' : 'peace',
+    });
 
     // Close modal
     setSelectedGiftTarget(null);
@@ -3327,10 +3722,10 @@ function LudoApp() {
   // 1. TRUE 3D LUXURY DICE WIDGET (نرد ثلاثي الأبعاد حقيقي مكعب مع 6 أوجه وظلال وفيزياء دحرجة)
   const renderDiceWidget = (playerColor: PlayerColor) => {
     const isTurn = turn === playerColor;
-    const isBlue = playerColor === 'blue';
+    const isMine = mySeatColor === playerColor;
     const isRolling = rollingDicePlayer === playerColor;
     const val = diceValues[playerColor] || 1;
-    const canClick = isTurn && isBlue && gameState === 'waiting_roll' && rollingDicePlayer === null && !winner;
+    const canClick = isTurn && isMine && gameState === 'waiting_roll' && rollingDicePlayer === null && !winner;
 
     // 3D Cube Rotation map to orient the active face with subtle isometric depth
     const faceRotations: Record<number, string> = {
@@ -3692,7 +4087,9 @@ function LudoApp() {
                           <MicIcon muted={isMutedSeat} className="w-2 h-2" />
                         </div>
                         {isModSeat && (
-                          <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                          <div className="absolute -top-1 -right-1 z-10 text-amber-300">
+                            <StarShieldIcon className="w-2.5 h-2.5" />
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3704,10 +4101,10 @@ function LudoApp() {
                           e.stopPropagation();
                           setSelectedGiftTarget(baseColor);
                         }}
-                        className="px-1.5 py-0.5 rounded-full bg-black/40 hover:bg-black/65 border border-amber-300/60 text-[10px] sm:text-xs leading-none shadow active:scale-90 transition-transform cursor-pointer shrink-0"
+                        className="px-1.5 py-0.5 rounded-full bg-black/45 hover:bg-black/70 border border-amber-300/60 shadow active:scale-90 transition-transform cursor-pointer shrink-0 flex items-center justify-center"
                         title={lang === 'ar' ? 'سلام وحرب (هدايا ومقالب)' : 'Peace & War Gifts'}
                       >
-                        🕊️⚔️
+                        <PeaceWarIcon className="w-3.5 h-3.5" />
                       </button>
                     )}
 
@@ -3859,9 +4256,26 @@ function LudoApp() {
                 </button>
               </div>
 
-              {/* Active Live Rooms Grid */}
+              {/* Active Live Rooms Grid (Live Supabase + Fallback Rooms) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {LUDO_PUBLIC_ROOMS.map((room) => {
+                {[
+                  ...liveLobbyRooms.map((lr): PublicLudoRoom => ({
+                    id: lr.id,
+                    nameAr: lr.name,
+                    nameEn: lr.name,
+                    hostName: lr.hostName,
+                    hostAvatar: lr.hostAvatar || '/laugh_emote.png',
+                    flag: '🌐',
+                    playerCount: (lr.maxPlayers as 2 | 4) || 4,
+                    currentPlayers: lr.currentPlayers,
+                    spectatorsCount: 0,
+                    entryFee: lr.stake,
+                    prizeAmount: lr.stake * (lr.maxPlayers === 2 ? 2 : 4),
+                    status: lr.status,
+                    modeType: lr.piecesCount === 2 ? 'blitz' : 'classic',
+                  })),
+                  ...LUDO_PUBLIC_ROOMS.filter((fr) => !liveLobbyRooms.some((lr) => lr.id === fr.id)),
+                ].map((room) => {
                   const isFull = room.currentPlayers >= room.playerCount;
                   const isInGame = room.status === 'in_game';
                   return (
@@ -4611,11 +5025,22 @@ function LudoApp() {
                 <button
                   type="button"
                   onClick={() => setShowH2HModal(true)}
-                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-amber-500/20 border border-white/20 flex items-center justify-center text-sm text-amber-300 transition-colors cursor-pointer active:scale-90"
+                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-amber-500/20 border border-white/20 flex items-center justify-center text-amber-300 transition-colors cursor-pointer active:scale-90"
                   title={lang === 'ar' ? 'سجل المواجهات والبطولات' : 'H2H & Leaderboard'}
                 >
-                  🏆
+                  <TrophyCupIcon className="w-4 h-4" />
                 </button>
+                <div
+                  className={`px-2 py-0.5 rounded-full border text-[9px] font-black flex items-center gap-1 ${
+                    isRealtimeConnected
+                      ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
+                      : 'bg-slate-900/70 border-white/15 text-slate-300'
+                  }`}
+                  title={isRealtimeConnected ? 'Live Supabase Realtime + WebRTC Voice' : 'Local AI Mode'}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isRealtimeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <span>{isRealtimeConnected ? (lang === 'ar' ? `مباشر (${realtimePeers.length})` : `Live (${realtimePeers.length})`) : (lang === 'ar' ? 'محلي' : 'Local')}</span>
+                </div>
               </div>
 
               {/* User Profile Chip */}
@@ -4623,16 +5048,16 @@ function LudoApp() {
                 <button
                   type="button"
                   onClick={() => {
-                    setStatusMessage(lang === 'ar' ? '🤝 تم نسخ رابط دعوة الأصدقاء للغرفة!' : 'Copied room invite link!');
+                    setStatusMessage(lang === 'ar' ? 'تم نسخ رابط دعوة الأصدقاء للغرفة!' : 'Copied room invite link!');
                     try { navigator.clipboard.writeText(window.location.href); } catch (e) {}
                   }}
                   className="w-6 h-6 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center text-[10px] font-black shadow cursor-pointer active:scale-90"
                   title={lang === 'ar' ? 'إضافة أصدقاء للغرفة' : 'Invite Friends'}
                 >
-                  👤+
+                  +
                 </button>
-                <div className="w-7 h-7 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-[10px]">
-                  <span>👑</span>
+                <div className="w-7 h-7 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-amber-300">
+                  <CrownIcon className="w-3.5 h-3.5" />
                   {userProfile?.avatar_url && (
                     <img
                       src={userProfile.avatar_url}
@@ -4647,7 +5072,6 @@ function LudoApp() {
                 <div className="text-right leading-none">
                   <span className="text-[10px] font-black text-white flex items-center gap-0.5">
                     <span>{userProfile?.username || 'Ali'}</span>
-                    <span>🇪🇬</span>
                   </span>
                   <span className="text-[8px] text-slate-300 font-sans block mt-0.5">
                     {userProfile?.id ? `${String(userProfile.id).slice(0, 7)} ID` : '12842582 ID'}
@@ -4669,7 +5093,7 @@ function LudoApp() {
             >
               {/* Level / Room Rank Badge */}
               <div className="w-8 h-8 rounded-full bg-black/35 border border-emerald-400/50 flex flex-col items-center justify-center text-[9px] font-black text-amber-300 shrink-0 leading-none">
-                <span>⭐</span>
+                <StarShieldIcon className="w-3 h-3 text-amber-300" />
                 <span>2</span>
               </div>
 
@@ -4698,8 +5122,7 @@ function LudoApp() {
                     key={`mic-slot-${slotIdx}`}
                     onClick={() => {
                       if (isMySeat) {
-                        setIsMicMuted(prev => !prev);
-                        setStatusMessage(!isMicMuted ? (lang === 'ar' ? 'تم كتم المايكروفون' : 'Mic muted') : (lang === 'ar' ? 'تم تشغيل المايكروفون' : 'Mic active'));
+                        void togglePlayerMicMute();
                       } else {
                         handleUserClick({
                           id: slot.id,
@@ -4733,22 +5156,26 @@ function LudoApp() {
                       </button>
                     )}
                     {slot.isHost ? (
-                      <div className="absolute -top-1.5 -right-1 text-[9px] z-10">👑</div>
+                      <div className="absolute -top-1.5 -right-1 z-10 text-amber-300 drop-shadow">
+                        <CrownIcon className="w-3 h-3" />
+                      </div>
                     ) : isSlotMod ? (
-                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                      <div className="absolute -top-1 -right-1 z-10 text-amber-300">
+                        <StarShieldIcon className="w-2.5 h-2.5" />
+                      </div>
                     ) : null}
                   </div>
                 );
               })}
 
               {/* Locked VIP Seat */}
-              <div className="w-8 h-8 rounded-full bg-black/30 border border-white/15 flex items-center justify-center text-xs text-slate-400 shrink-0">
-                🔒
+              <div className="w-8 h-8 rounded-full bg-black/30 border border-white/15 flex items-center justify-center text-slate-400 shrink-0">
+                <LockClosedIcon className="w-3.5 h-3.5" />
               </div>
             </div>
 
-            {/* Row 3: Treasure Chest + Compact Status + Floating-Style Settings Gear */}
-            <div dir="ltr" className="w-full flex items-center justify-between gap-2 px-0.5">
+            {/* Row 3: Treasure Chest + Rules (?) + Compact Status + Settings Gear */}
+            <div dir="ltr" className="w-full flex items-center justify-between gap-1.5 px-0.5">
               {/* Coin Chest Button */}
               <button
                 type="button"
@@ -4756,17 +5183,28 @@ function LudoApp() {
                   setPlayerCoins(prev => {
                     const next = prev + 50;
                     try { localStorage.setItem('ludo_coins_balance', next.toString()); } catch (e) {}
+                    void syncLudoEconomyToServer({ userId: userProfile?.id, newCoins: next, deltaCoins: 50 });
                     return next;
                   });
                   playCoinChime();
-                  setStatusMessage(lang === 'ar' ? '🎁 تم جمع مكافأة الصندوق اليومي (+50 🪙)!' : '🎁 Collected daily bonus (+50 🪙)!');
+                  setStatusMessage(lang === 'ar' ? 'تم جمع مكافأة الصندوق اليومي (+50)!' : 'Collected daily chest bonus (+50)!');
                 }}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/35 border border-amber-400/50 text-amber-300 text-[11px] font-black cursor-pointer active:scale-95 transition-transform shrink-0"
                 title={lang === 'ar' ? 'صندوق المكافآت الذهبية' : 'Coins Chest'}
               >
-                <span>🎁</span>
+                <ChestRewardIcon className="w-3.5 h-3.5" />
                 <span>{playerCoins}</span>
-                <span>🪙</span>
+                <CoinGoldIcon className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Game Rules (?) Quick Modal Button */}
+              <button
+                type="button"
+                onClick={() => setShowRulesModal(true)}
+                className="w-7 h-7 rounded-full bg-black/35 hover:bg-amber-500/20 border border-white/20 text-slate-200 hover:text-amber-300 flex items-center justify-center cursor-pointer active:scale-90 transition-transform shrink-0"
+                title={lang === 'ar' ? 'قوانين اللعبة' : 'Game Rules'}
+              >
+                <HelpQuestionIcon className="w-3.5 h-3.5" />
               </button>
 
               {/* Turn / Game Status Pill */}
@@ -4774,14 +5212,14 @@ function LudoApp() {
                 {statusMessage}
               </div>
 
-              {/* Side Settings Gear (ترتيب باقي الأدوات بداخله) */}
+              {/* Side Settings Gear */}
               <button
                 type="button"
                 onClick={() => setShowSettingsModal(true)}
-                className="w-8 h-8 rounded-full bg-black/35 hover:bg-slate-800 border border-white/25 text-white flex items-center justify-center text-base shadow cursor-pointer active:scale-90 transition-transform shrink-0"
-                title={lang === 'ar' ? 'الإعدادات والتحكم السريع ⚙️' : 'Settings & Quick Controls ⚙️'}
+                className="w-8 h-8 rounded-full bg-black/35 hover:bg-slate-800 border border-white/25 text-white flex items-center justify-center shadow cursor-pointer active:scale-90 transition-transform shrink-0"
+                title={lang === 'ar' ? 'الإعدادات والتحكم السريع' : 'Settings & Quick Controls'}
               >
-                ⚙️
+                <SettingsGearIcon className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -4816,14 +5254,8 @@ function LudoApp() {
               {renderBoard()}
             </div>
 
-            {/* Top Layer: Active Pawns organized squarely in their 15x15 cells above all board layers */}
-            <div
-              className="absolute inset-0 w-full h-full grid gap-[1px] sm:gap-[2px] p-[2px] pointer-events-none z-30"
-              style={{
-                gridTemplateColumns: 'repeat(15, minmax(0, 1fr))',
-                gridTemplateRows: 'repeat(15, minmax(0, 1fr))',
-              }}
-            >
+            {/* Top Layer: Smooth-hop percentage overlay for Active Pawns & capture bursts */}
+            <div className="absolute inset-0 w-full h-full pointer-events-none z-30">
               {renderTokensLayer()}
             </div>
           </div>
@@ -4957,74 +5389,78 @@ function LudoApp() {
               <div dir="ltr" className="w-full flex items-center justify-between gap-2">
                 {/* Left Cluster: Peace & War, Menu, History */}
                 <div className="flex items-center gap-2">
-                  {/* Peace & War Trigger 🕊️⚔️ */}
+                  {/* Peace & War Trigger */}
                   <button
                     type="button"
                     onClick={() => setSelectedGiftTarget('red')}
-                    className="h-9 px-2.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-sm shadow hover:scale-105 active:scale-95 transition-transform cursor-pointer border border-amber-300"
-                    title={lang === 'ar' ? 'السلام والحرب (هدايا ومقالب) 🕊️⚔️' : 'Peace & War 🕊️⚔️'}
+                    className="h-9 px-2.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center shadow hover:scale-105 active:scale-95 transition-transform cursor-pointer border border-amber-300"
+                    title={lang === 'ar' ? 'السلام والحرب (هدايا ومقالب)' : 'Peace & War'}
                   >
-                    🕊️⚔️
+                    <PeaceWarIcon className="w-4 h-4" />
                   </button>
 
-                  {/* Grid Menu Button ⊞ */}
+                  {/* Grid Menu Button */}
                   <button
                     type="button"
                     onClick={() => setShowSettingsModal(true)}
-                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
                     title={lang === 'ar' ? 'القائمة والإعدادات' : 'Menu & Settings'}
                   >
-                    ⊞
+                    <GridMenuIcon className="w-4 h-4" />
                   </button>
 
-                  {/* Mail / History Button ✉️ */}
+                  {/* Mail / History Button */}
                   <button
                     type="button"
                     onClick={() => setShowH2HModal(true)}
-                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
                     title={lang === 'ar' ? 'سجل المواجهات' : 'History'}
                   >
-                    ✉️
+                    <MailInboxIcon className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* Right Cluster: Mic, Smileys, Quick Chat */}
                 <div className="flex items-center gap-2">
-                  {/* Mic Toggle Button (Microphone SVG icon, NOT speaker) */}
+                  {/* Live WebRTC Mic Toggle Button */}
                   <button
                     type="button"
                     onClick={() => {
-                      setIsMicMuted(prev => !prev);
-                      setStatusMessage(!isMicMuted ? (lang === 'ar' ? 'تم كتم المايكروفون' : 'Mic muted') : (lang === 'ar' ? 'تم تشغيل المايكروفون' : 'Mic unmuted'));
+                      void togglePlayerMicMute();
                     }}
-                    className={`w-9 h-9 rounded-full border flex items-center justify-center shadow active:scale-95 transition-transform cursor-pointer ${
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center shadow active:scale-95 transition-transform cursor-pointer relative ${
                       isMicMuted
                         ? 'bg-rose-950/80 border-rose-500 text-rose-300'
                         : 'bg-black/45 border-emerald-400/70 text-emerald-300'
                     }`}
-                    title={isMicMuted ? 'تفعيل المايكروفون' : 'كتم المايكروفون'}
+                    title={isMicMuted ? 'تفعيل المايكروفون المباشر' : 'كتم المايكروفون'}
                   >
                     <MicIcon muted={isMicMuted} className="w-4 h-4" />
+                    {voiceStatus.micActive && voiceStatus.peerCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 text-[8px] font-black text-slate-950 flex items-center justify-center">
+                        {voiceStatus.peerCount}
+                      </span>
+                    )}
                   </button>
 
-                  {/* Smileys / Emotes Picker Button 😄 */}
+                  {/* Smileys / Emotes Picker Button */}
                   <button
                     type="button"
                     onClick={() => setShowEmotesBar(prev => !prev)}
-                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-lg shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
                     title={lang === 'ar' ? 'تفاعلات وإيموجي' : 'Emotes'}
                   >
-                    😄
+                    <EmoteSmileIcon className="w-4 h-4" />
                   </button>
 
-                  {/* Quick Chat Button 💬 */}
+                  {/* Quick Chat Button */}
                   <button
                     type="button"
                     onClick={() => setShowQuickChat(true)}
                     className="h-9 px-3 rounded-full bg-black/45 border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition-transform cursor-pointer"
                     title={lang === 'ar' ? 'دردشة سريعة' : 'Quick Chat'}
                   >
-                    <span>💬</span>
+                    <ChatBubbleIcon className="w-4 h-4" />
                     <span className="hidden sm:inline">{lang === 'ar' ? 'دردشة' : 'Chat'}</span>
                   </button>
                 </div>
@@ -5108,24 +5544,26 @@ function LudoApp() {
               <button
                 type="button"
                 onClick={() => setGiftCategoryTab('prank')}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   giftCategoryTab === 'prank'
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                ⚔️ {lang === 'ar' ? 'حرب (مقالب وضرب)' : 'War (Pranks)'}
+                <WarSwordsIcon className="w-3.5 h-3.5" />
+                <span>{lang === 'ar' ? 'حرب (مقالب وضرب)' : 'War (Pranks)'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setGiftCategoryTab('friendly')}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   giftCategoryTab === 'friendly'
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                🕊️ {lang === 'ar' ? 'سلام (تحيات وود)' : 'Peace (Greetings)'}
+                <PeaceDoveIcon className="w-3.5 h-3.5" />
+                <span>{lang === 'ar' ? 'سلام (تحيات وود)' : 'Peace (Greetings)'}</span>
               </button>
             </div>
 
@@ -5374,7 +5812,7 @@ function LudoApp() {
                   key={idx}
                   type="button"
                   onClick={() => {
-                    addChatMessage(phrase, 'chat', userProfile?.username || 'Ali');
+                    addChatMessage(phrase, 'chat', userProfile?.username || 'Ali', true);
                     setShowQuickChat(false);
                     playGiftSound('chime');
                   }}
@@ -5393,7 +5831,7 @@ function LudoApp() {
                 onChange={(e) => setQuickInputText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && quickInputText.trim()) {
-                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali');
+                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali', true);
                     setQuickInputText('');
                     setShowQuickChat(false);
                   }
@@ -5405,7 +5843,7 @@ function LudoApp() {
                 type="button"
                 onClick={() => {
                   if (quickInputText.trim()) {
-                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali');
+                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali', true);
                     setQuickInputText('');
                     setShowQuickChat(false);
                   }
@@ -5828,12 +6266,13 @@ function LudoApp() {
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <span className="text-sm font-black text-amber-300 flex items-center gap-1.5">
-                <span>⚙️</span>
+                <SettingsGearIcon className="w-4 h-4" />
                 <span>{lang === 'ar' ? 'الإعدادات والتحكم السريع' : 'Settings & Quick Controls'}</span>
               </span>
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300">
-                  🪙 {playerCoins}
+                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300 flex items-center gap-1">
+                  <CoinGoldIcon className="w-3.5 h-3.5" />
+                  <span>{playerCoins}</span>
                 </span>
                 <button
                   type="button"
@@ -5855,7 +6294,7 @@ function LudoApp() {
                     isMuted ? 'bg-rose-950/80 text-rose-300 border-rose-800' : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                   }`}
                 >
-                  <span>{isMuted ? '🔇' : '🔊'}</span>
+                  <SpeakerToggleIcon muted={isMuted} className="w-4 h-4" />
                   <span>{isMuted ? (lang === 'ar' ? 'الصوت مكتوم' : 'Muted') : (lang === 'ar' ? 'المؤثرات شغالة' : 'Sound On')}</span>
                 </button>
 
@@ -5986,6 +6425,108 @@ function LudoApp() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ❓ LUDO RULES MODAL */}
+      {showRulesModal && (
+        <div
+          onClick={() => setShowRulesModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn"
+        >
+          <div
+            dir={lang === 'ar' ? 'rtl' : 'ltr'}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col gap-3 text-slate-100 max-h-[85dvh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2 text-amber-300 font-black text-sm">
+                <HelpQuestionIcon className="w-5 h-5" />
+                <span>{lang === 'ar' ? 'قواعد ودليل لودو الممالك' : 'Mythical Ludo Rules'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRulesModal(false)}
+                className="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs leading-relaxed text-slate-300">
+              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
+                <StartLaunchIcon className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <p>
+                  {lang === 'ar'
+                    ? 'احصل على الرقم (6) لإخراج مقاتلك من القاعدة إلى خانة الانطلاق، كما يمنحك الرقم 6 رمية إضافية!'
+                    : 'Roll a 6 to move a piece out from base onto the starting tile and earn an extra roll.'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
+                <StarShieldIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p>
+                  {lang === 'ar'
+                    ? 'المربعات النجمية ومربعات الانطلاق آمنة تماماً ولا يمكن أكل أي قطعة فوقها، وتكوين جدار من قطعتين يحميها.'
+                    : 'Star tiles and launch tiles are Safe Zones where pieces cannot be captured.'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
+                <WarSwordsIcon className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <p>
+                  {lang === 'ar'
+                    ? 'عند الوقوف على قطعة خصم منفردة خارج المناطق الآمنة، تُعاد لقاعدتها وتحصل على رمية إضافية!'
+                    : 'Landing on a single opponent pawn sends it back to base and grants a bonus roll!'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
+                <CrownIcon className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+                <p>
+                  {lang === 'ar'
+                    ? 'توصيل قطعة للنهاية يمنح رمية إضافية. الفائز يحصل على جائزة الرهان وتُحفظ نقاطه في الملف الشخصي!'
+                    : 'Reaching the center Crown gives an extra roll. Finish first to win the table prize!'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🚪 EXIT MATCH CONFIRMATION MODAL */}
+      {showExitConfirmModal && (
+        <div
+          onClick={() => setShowExitConfirmModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn"
+        >
+          <div
+            dir={lang === 'ar' ? 'rtl' : 'ltr'}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xs bg-slate-950 border-2 border-rose-500/60 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-center"
+          >
+            <h3 className="text-base font-black text-white">
+              {lang === 'ar' ? 'تأكيد الخروج من المباراة' : 'Leave Match?'}
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {lang === 'ar'
+                ? 'المباراة لا تزال جارية الآن! هل أنت متأكد أنك تريد مغادرة الطاولة والعودة إلى الصالة؟'
+                : 'The match is still in progress. Are you sure you want to leave this table?'}
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowExitConfirmModal(false)}
+                className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
+              >
+                {lang === 'ar' ? 'البقاء في اللعب' : 'Stay'}
+              </button>
+              <button
+                type="button"
+                onClick={confirmExitGame}
+                className="py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-lg"
+              >
+                {lang === 'ar' ? 'نعم، خروج' : 'Yes, Exit'}
+              </button>
             </div>
           </div>
         </div>

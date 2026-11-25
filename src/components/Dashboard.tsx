@@ -187,10 +187,24 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'CLOSE_GAME') {
         handleCloseGame();
+      } else if (event.data.type === 'LUDO_COINS_SYNC') {
+        const syncedCoins = typeof event.data.newCoins === 'number' ? Math.max(0, event.data.newCoins) : profile.gold_coins;
+        const mr = event.data.matchResult;
+        onUpdate(
+          {
+            ...profile,
+            gold_coins: syncedCoins,
+            wins: mr?.isWinner ? profile.wins + 1 : profile.wins,
+            losses: mr && !mr.isWinner ? profile.losses + 1 : profile.losses,
+          },
+          dailyQuest
+        );
       } else if (event.data.type === 'LUDO_GAME_OVER' || event.data.type === 'GAME_OVER') {
         if (event.data.isHuman && event.data.coins > 0) {
-          const updatedCoins = profile.gold_coins + event.data.coins;
-          onUpdate({ ...profile, gold_coins: updatedCoins, wins: profile.wins + 1 }, dailyQuest);
+          if (event.data.type === 'GAME_OVER') {
+            const updatedCoins = profile.gold_coins + event.data.coins;
+            onUpdate({ ...profile, gold_coins: updatedCoins, wins: profile.wins + 1 }, dailyQuest);
+          }
           addToast(
             lang === 'ar'
               ? `🎉 مبروك! حققت الفوز وحصلت على ${event.data.coins} عملة ذهبية!`
@@ -1459,12 +1473,13 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
                         const pieces = ludoRoomConfig?.pieceCount || 4;
                         const winRule = ludoRoomConfig?.winRule || 'all';
                         const stake = cafeRoomConfig?.entryFee || ludoRoomConfig?.entryFee || 50;
+                        const roomIdParam = encodeURIComponent(cafeRoomConfig?.roomId || ludoRoomConfig?.roomId || `ludo-${profile.id.slice(0, 6)}`);
                         const roomName = encodeURIComponent(cafeRoomConfig?.roomName || ludoRoomConfig?.roomName || 'Ludo Room');
                         const isHost = cafeRoomConfig?.isHost !== undefined ? cafeRoomConfig.isHost : true;
                         const hostId = encodeURIComponent(cafeRoomConfig?.hostId || profile.id);
                         const hostName = encodeURIComponent(cafeRoomConfig?.hostName || profile.username);
                         const hostAvatar = encodeURIComponent(cafeRoomConfig?.hostAvatar || profile.avatar_url || '');
-                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}`;
+                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomId=${roomIdParam}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}&goldCoins=${profile.gold_coins}`;
                       }
 
                       // Handle other 5 Cafe Social Games (Domino, Backgammon, Chess, Uno, Estimation)

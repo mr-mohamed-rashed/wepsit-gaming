@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Profile } from '@/lib/supabase';
+import { subscribeLudoLobby, LiveLobbyRoom } from '@/app/games/ludo/ludoRealtime';
 
 export type CafeGameKey = 'ludo' | 'domino' | 'backgammon' | 'chess' | 'uno' | 'estimation';
 
@@ -492,6 +493,45 @@ export default function CafeRoomModal({
     lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`
   );
 
+  // Live Supabase Realtime Lobby Rooms
+  const [liveLudoRooms, setLiveLudoRooms] = useState<ActiveTableItem[]>([]);
+  const lobbyPubRef = useRef<((room: LiveLobbyRoom | null) => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (gameKey !== 'ludo') return;
+    const sub = subscribeLudoLobby(
+      {
+        id: profile.id,
+        username: profile.username,
+        avatar: profile.avatar_url || '',
+      },
+      (rooms) => {
+        setLiveLudoRooms(
+          rooms.map((r) => ({
+            id: r.id,
+            nameAr: r.name,
+            nameEn: r.name,
+            hostName: r.hostName,
+            hostAvatar: r.hostAvatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(r.hostName)}`,
+            flag: '🌐',
+            playerCount: r.maxPlayers || 4,
+            currentPlayers: r.currentPlayers || 1,
+            spectatorsCount: 0,
+            entryFee: r.stake || 50,
+            prizeAmount: (r.stake || 50) * (r.maxPlayers === 2 ? 1.9 : 3.8),
+            status: r.status,
+            subType: r.piecesCount === 2 ? 'blitz' : 'classic',
+          }))
+        );
+      }
+    );
+    lobbyPubRef.current = sub.publishHostedRoom;
+    return () => {
+      sub.unsubscribe();
+      lobbyPubRef.current = null;
+    };
+  }, [gameKey, profile.id, profile.username, profile.avatar_url]);
+
   // Matchmaking animation state
   const [isSearching, setIsSearching] = useState(false);
   const [searchTitle, setSearchTitle] = useState('');
@@ -546,6 +586,21 @@ export default function CafeRoomModal({
       hostName: profile.username,
       hostAvatar: profile.avatar_url || '',
     };
+    if (gameKey === 'ludo' && lobbyPubRef.current) {
+      void lobbyPubRef.current({
+        id: config.roomId,
+        name: config.roomName,
+        hostId: profile.id,
+        hostName: profile.username,
+        hostAvatar: profile.avatar_url || '',
+        stake: entryFee,
+        maxPlayers: playerCount,
+        piecesCount: 4,
+        winRule: 'all',
+        status: 'waiting',
+        currentPlayers: 1,
+      });
+    }
     startEntryFlow(config);
   };
 
@@ -779,7 +834,10 @@ export default function CafeRoomModal({
             {tab === 'browse' && (
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {meta.activeTables.map((room) => {
+                  {(gameKey === 'ludo'
+                    ? [...liveLudoRooms, ...meta.activeTables.filter((t) => !liveLudoRooms.some((lr) => lr.id === t.id))]
+                    : meta.activeTables
+                  ).map((room) => {
                     const isFull = room.currentPlayers >= room.playerCount;
                     const isInGame = room.status === 'in_game';
                     return (
