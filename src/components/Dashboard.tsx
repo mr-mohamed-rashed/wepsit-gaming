@@ -57,6 +57,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   const [showCafeRoomModal, setShowCafeRoomModal] = useState(false);
   const [selectedCafeGameKey, setSelectedCafeGameKey] = useState<CafeGameKey>('ludo');
   const [cafeRoomConfig, setCafeRoomConfig] = useState<CafeRoomConfig | null>(null);
+  const [activeDrawerTab, setActiveDrawerTab] = useState<'level' | 'quests' | 'chat' | null>(null);
+  const [chatPopupView, setChatPopupView] = useState<'lobby' | 'friends'>('lobby');
   const [pendingGameTitle, setPendingGameTitle] = useState('');
   const [pendingGameMode, setPendingGameMode] = useState<'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards'>('ludo');
   const [selectedStakeConfig, setSelectedStakeConfig] = useState<{
@@ -830,436 +832,529 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      {/* Sub-Header Floating Page Tabs (ليفيل | المهام اليومية | الدردشة) */}
+      <div
+        dir={lang === 'ar' ? 'rtl' : 'ltr'}
+        className="border-b border-indigo-500/20 bg-[#070a12]/80 backdrop-blur-md sticky top-[65px] z-20"
+      >
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-center sm:justify-start gap-2 sm:gap-3 overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            onClick={() => setActiveDrawerTab(prev => prev === 'level' ? null : 'level')}
+            className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 shrink-0 border ${
+              activeDrawerTab === 'level'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.45)]'
+                : 'bg-slate-900/80 hover:bg-slate-800 text-indigo-200 border-indigo-500/35'
+            }`}
+          >
+            <span>🎖️</span>
+            <span>{lang === 'ar' ? 'ليفيل' : 'Level'}</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px]">
+              Lv.{generalLevel}
+            </span>
+          </button>
 
-        {/* Left Column: Profile Card, XP Levels, & Daily Quests */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* User Profile Header & XP Level Stats */}
-          <section className="bg-gradient-to-b from-indigo-900/30 to-black/30 backdrop-blur-lg rounded-2xl p-6 border border-indigo-500/30 shadow-[inset_0_0_20px_rgba(99,102,241,0.1)] space-y-6">
-            <div className="flex items-center gap-4">
-              <img
-                src={profile.avatar_url}
-                alt="Avatar"
-                className="w-16 h-16 rounded-full bg-slate-950 p-1 border-2 border-indigo-500 shadow-xl shadow-indigo-950/50"
-              />
-              <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  {profile.username}
-                  <span className="text-xs px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
-                    {t.playerBadge}
-                  </span>
-                </h2>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 bg-amber-950/40 border border-amber-900/30 px-2 py-0.5 rounded-md">
-                    {t.generalLevel}: Level {generalLevel}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <button
+            type="button"
+            onClick={() => setActiveDrawerTab(prev => prev === 'quests' ? null : 'quests')}
+            className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 shrink-0 border ${
+              activeDrawerTab === 'quests'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 border-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.45)]'
+                : 'bg-slate-900/80 hover:bg-slate-800 text-amber-300 border-amber-500/35'
+            }`}
+          >
+            <span>🎯</span>
+            <span>{lang === 'ar' ? 'المهام اليومية' : 'Daily Quests'}</span>
+          </button>
 
-            {/* Wins/Losses Ratio */}
-            <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800/80 text-center">
-              <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-3">
-                <span className="block text-2xl font-black text-emerald-400">{profile.wins}</span>
-                <span className="text-xs text-slate-400 font-medium">{t.winsLabel}</span>
-              </div>
-              <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-3">
-                <span className="block text-2xl font-black text-rose-400">{profile.losses}</span>
-                <span className="text-xs text-slate-400 font-medium">{t.lossesLabel}</span>
-              </div>
-            </div>
-
-            {/* PROGRESS SYSTEM DETAILS PANEL */}
-            <div className="space-y-4 pt-4 border-t border-slate-800/80">
-              <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                <span>🎖️</span> {t.gameLevels}
-              </h4>
-
-              <div className="space-y-3.5">
-                {[
-                  { name: lang === 'ar' ? '🎲 لعبة الدومينو' : 'Dominoes', info: dominoLevelInfo },
-                  { name: lang === 'ar' ? '🔴 كازينو أونو' : 'UNO Casino', info: unoLevelInfo },
-                  { name: lang === 'ar' ? '🎰 استميشن الملوك' : 'Estimation Casino', info: estimationLevelInfo },
-                  { name: lang === 'ar' ? '⚔️ شطرنج القتال 3D' : '3D Combat Chess', info: chessLevelInfo },
-                  { name: lang === 'ar' ? '🤖 معارك السايبر' : 'Cyber Arena Battles', info: cyberArenaLevelInfo },
-                  { name: lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon', info: backgammonLevelInfo },
-                ].map((g, idx) => {
-                  const pct = Math.min(100, Math.round((g.info.currentXp / g.info.nextXpRequired) * 100));
-                  return (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-[10px] font-bold">
-                        <span className="text-slate-300">{g.name}</span>
-                        <span className="text-indigo-300">Level {g.info.level}</span>
-                      </div>
-                      <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-800/80 relative">
-                        <div
-                          className="bg-gradient-to-r from-indigo-600 to-indigo-400 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        ></div>
-                      </div>
-                      <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-                        <span>XP: {g.info.currentXp}</span>
-                        <span>Next: {g.info.nextXpRequired} XP (+50% req)</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-
-          <DailyQuests
-            profile={profile}
-            dailyQuest={dailyQuest}
-            onUpdate={onUpdate}
-            addToast={addToast}
-            lang={lang}
-          />
+          <button
+            type="button"
+            onClick={() => setActiveDrawerTab(prev => prev === 'chat' ? null : 'chat')}
+            className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 shrink-0 border ${
+              activeDrawerTab === 'chat'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.45)]'
+                : 'bg-slate-900/80 hover:bg-slate-800 text-cyan-300 border-cyan-500/35'
+            }`}
+          >
+            <span>💬</span>
+            <span>{lang === 'ar' ? 'الدردشة' : 'Chat'}</span>
+          </button>
         </div>
+      </div>
 
-        {/* Middle Column: Matchmaking Group Chat Lobby & Games */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Main Content: Games Library Directly Front & Center */}
+      <main className="max-w-7xl mx-auto px-4 mt-6">
+        <div className="bg-gradient-to-tr from-blue-900/30 via-slate-900/40 to-purple-900/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 border border-purple-400/30 shadow-[0_0_20px_rgba(168,85,247,0.2)] space-y-6 relative overflow-hidden">
+          {/* Subtle glow orb in background */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <span>{t.hostedGames}</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">{t.hostedGamesDesc}</p>
+          </div>
 
-          {/* GLOBAL LOBBY GROUP CHAT & MATCHMAKING PANEL ON THE FACADE (الواجهة) */}
-          <div className="bg-gradient-to-br from-cyan-900/30 via-slate-900/40 to-blue-900/20 backdrop-blur-lg rounded-2xl p-6 border border-cyan-400/30 shadow-[0_0_20px_rgba(6,182,212,0.2)] space-y-4">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800/80 pb-4 gap-4">
-              <div>
-                <h3 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">
-                  <span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]">🎮</span> {lang === 'ar' ? 'مكتبة الألعاب وغرف التحدي' : 'Game Library & Matchmaking Lobby'}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  {lang === 'ar' ? 'أنشئ دور لعب أو ابحث عن التحديات النشطة للانضمام واللعب فوراً!' : 'Create rooms or join active match sessions directly from the chat feed!'}
-                </p>
-              </div>
-
-              {/* Create Game Room Invite Trigger */}
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <select
-                  value={selectedGameForSession}
-                  onChange={(e) => setSelectedGameForSession(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none"
-                >
-                  <option value="domino-game">🎲 {lang === 'ar' ? 'لعبة الدومينو' : 'Dominoes'}</option>
-                  <option value="uno-game">🔴 {lang === 'ar' ? 'كازينو أونو' : 'UNO'}</option>
-                  <option value="estimation-game">🎰 {lang === 'ar' ? 'كازينو الاستميشن' : 'Estimation'}</option>
-                  <option value="cyber-arena">🤖 {lang === 'ar' ? 'معارك السايبر' : 'Cyber Arena'}</option>
-                  <option value="backgammon-game">🎲 {lang === 'ar' ? 'لعبة الطاولة' : 'Backgammon'}</option>
-                </select>
-
-                <button
-                  onClick={() => handleCreateSession(selectedGameForSession)}
-                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer shadow-lg shadow-indigo-900/20 whitespace-nowrap"
-                >
-                  {lang === 'ar' ? '➕ إنشاء دور لعب' : '➕ Create Room'}
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Group Chat Lobby Stream */}
-            <div className="h-[380px] bg-slate-950 border border-slate-850 rounded-2xl p-4 overflow-y-auto space-y-4 scrollbar-thin">
-              {lobbyMessages.map((msg) => (
-                <div key={msg.id} className="flex gap-3 text-xs items-start">
-                  <img src={msg.senderAvatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800" />
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-indigo-300">{msg.senderName}</span>
-                      <span className="text-[9px] text-slate-650 font-mono">{msg.time}</span>
-                    </div>
-
-                    <p className="text-slate-300 text-xs">{msg.text}</p>
-
-                    {/* Interactive Session Invite Card inside Chat! */}
-                    {msg.session && (
-                      <div className="mt-2.5 p-3.5 bg-indigo-950/20 border border-indigo-500/20 rounded-xl flex items-center justify-between gap-4 max-w-sm">
-                        <div>
-                          <p className="font-bold text-white text-[11px]">{msg.session.gameTitle}</p>
-                          <p className="text-[9px] text-indigo-400 mt-0.5">{lang === 'ar' ? `المستضيف: ${msg.session.hostName}` : `Hosted by: ${msg.session.hostName}`}</p>
-                        </div>
-                        <button
-                          onClick={() => handlePlayGame(msg.session!.gameId)}
-                          className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 text-[10px] font-black rounded-lg hover:from-amber-500 hover:to-amber-400 active:scale-95 transition-all cursor-pointer border border-amber-400"
-                        >
-                          {lang === 'ar' ? '🕹️ انضم الآن' : '🕹️ Join now'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Global Chat message input */}
-            <div className="flex gap-2.5">
-              <input
-                type="text"
-                value={lobbyText}
-                onChange={(e) => setLobbyText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendLobbyMessage()}
-                placeholder={lang === 'ar' ? 'اكتب رسالة للدردشة والمشاكسة مع الموجودين باللوبي...' : 'Broadcast message to portal lobby chat...'}
-                className="flex-1 bg-black/50 border border-purple-500/30 rounded-xl px-4 py-2.5 text-xs text-purple-100 focus:outline-none focus:border-purple-400 focus:shadow-[0_0_10px_rgba(168,85,247,0.3)] placeholder-purple-900/50"
-              />
-              <button
-                onClick={handleSendLobbyMessage}
-                className="px-5 py-2.5 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.2)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {gamesList.map((game) => (
+              <div
+                key={game.id}
+                onClick={() => {
+                  if (game.isReady) handlePlayGame(game.id);
+                }}
+                className={`bg-black/40 backdrop-blur-md border border-cyan-500/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.1)] flex flex-col group hover:border-cyan-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:-translate-y-1 transition-all duration-300 relative z-10 ${
+                  game.isReady ? 'cursor-pointer' : 'opacity-70'
+                }`}
               >
-                {t.sendBtn}
-              </button>
-            </div>
-          </div>
-
-          {/* Hosted Games Library Cards Grid */}
-          <div className="bg-gradient-to-tr from-blue-900/30 via-slate-900/40 to-purple-900/20 backdrop-blur-lg rounded-2xl p-6 border border-purple-400/30 shadow-[0_0_20px_rgba(168,85,247,0.2)] space-y-6 relative overflow-hidden">
-            {/* Subtle glow orb in background */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[100px] pointer-events-none"></div>
-            <div>
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <span>{t.hostedGames}</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">{t.hostedGamesDesc}</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {gamesList.map((game) => (
-                <div
-                  key={game.id}
-                  onClick={() => {
-                    if (game.isReady) handlePlayGame(game.id);
-                  }}
-                  className={`bg-black/40 backdrop-blur-md border border-cyan-500/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.1)] flex flex-col group hover:border-cyan-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:-translate-y-1 transition-all duration-300 relative z-10 ${
-                    game.isReady ? 'cursor-pointer' : 'opacity-70'
-                  }`}
-                >
-                  <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
-                    <img
-                      src={game.image}
-                      alt={game.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500 opacity-80"
-                    />
-                    <span className="absolute top-3 left-3 text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white px-2 py-0.5 rounded">
-                      {game.badge}
-                    </span>
-                  </div>
-
-                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                    <div className="space-y-1">
-                      <h4 className="font-bold text-white text-base">{game.title}</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">{game.description}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
-                      <span className={`text-xs font-semibold ${game.isReady ? 'text-emerald-400' : 'text-amber-500'}`}>
-                        {game.status}
-                      </span>
-                      <button
-                        disabled={!game.isReady}
-                        onClick={() => handlePlayGame(game.id)}
-                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${game.isReady
-                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white border-transparent cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-                            : 'bg-black/50 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60'
-                          }`}
-                      >
-                        {game.isReady ? t.playGame : (lang === 'ar' ? 'قريباً' : 'Coming Soon')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
-
-        {/* Right Column: Friends Messenger Vertical Panel */}
-        <div className="lg:col-span-1 h-full">
-          <div className="bg-gradient-to-br from-fuchsia-900/30 via-slate-900/40 to-indigo-900/20 backdrop-blur-xl border border-fuchsia-400/30 rounded-2xl p-0 shadow-[0_0_25px_rgba(168,85,247,0.2)] flex flex-col h-[calc(100vh-140px)] sticky top-24 overflow-hidden relative">
-            {/* Ambient inner glow for the messenger */}
-            <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-purple-600/10 to-transparent pointer-events-none"></div>
-
-            {/* Chat Window Panel (Top Half, Flexible) */}
-            <div className="flex-1 flex flex-col justify-between bg-black/20 p-4 overflow-hidden relative z-10">
-              {activeChatFriend ? (
-                <>
-                  {/* Chat Header */}
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 shrink-0">
-                    <div className="flex items-center gap-2.5">
-                      <img src={activeChatFriend.avatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-950 border border-slate-800" />
-                      <div>
-                        <span className="text-xs font-black text-amber-400 block">
-                          {activeChatFriend.name}
-                        </span>
-                        <p className="text-[9px] text-slate-500">
-                          {activeChatFriend.blocked
-                            ? (lang === 'ar' ? 'الصديق محظور - قم بإلغاء الحظر للمراسلة' : 'Friend Blocked - Unblock to chat')
-                            : (lang === 'ar' ? 'دردشة نشطة' : 'Active Chat')}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Message logs */}
-                  <div className="flex-1 overflow-y-auto py-3 space-y-3 scrollbar-thin pr-1">
-                    {activeChatFriend.chatHistory.map((h, i) => (
-                      <div
-                        key={i}
-                        className={`flex flex-col ${h.sender === 'you' ? 'items-end' : 'items-start'} space-y-1`}
-                      >
-                        <div
-                          className={`px-3 py-2 rounded-2xl border text-[10.5px] max-w-[85%] leading-relaxed ${h.sender === 'you'
-                              ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-200 rounded-tr-none'
-                              : 'bg-slate-950/60 border-slate-800 text-slate-350 rounded-tl-none'
-                            }`}
-                        >
-                          {h.text}
-                        </div>
-                        <span className="text-[7px] text-slate-600 font-mono px-1.5">{h.time}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Chat input box */}
-                  <div className="flex gap-2 pt-3 border-t border-slate-800/80 shrink-0">
-                    <input
-                      type="text"
-                      value={typedMessage}
-                      onChange={(e) => setTypedMessage(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                      placeholder={activeChatFriend.blocked ? (lang === 'ar' ? 'قم بإلغاء حظر الصديق أولاً لإرسال الرسائل!' : 'Unblock first to chat!') : t.chatPlaceholder}
-                      disabled={activeChatFriend.blocked}
-                      className="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed min-w-0"
-                    />
-                    <button
-                      onClick={handleSendMessage}
-                      disabled={activeChatFriend.blocked}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                    >
-                      {t.sendBtn}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6">
-                  <span className="text-5xl animate-bounce mb-3 drop-shadow-[0_0_15px_rgba(168,85,247,0.8)]">👻</span>
-                  <p className="text-xs text-slate-500 leading-relaxed italic max-w-xs">
-                    {lang === 'ar'
-                      ? 'اختر صديقاً من القائمة لبدء المحادثة، أو قم بإضافة صديق جديد للمراسلة الفورية!'
-                      : 'Select a friend from the list to start chatting, or add new friends to message.'}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Friends List Panel (Bottom Half, Dynamic Height) */}
-            <div className="bg-black/40 p-4 border-t border-purple-500/20 flex flex-col gap-4 shrink-0 max-h-[50%] shadow-[inset_0_20px_20px_-20px_rgba(168,85,247,0.1)] relative z-10">
-
-              <div className="space-y-3 shrink-0">
-                <h3 className="text-sm font-black text-purple-200 flex items-center gap-2 drop-shadow-[0_0_5px_rgba(168,85,247,0.5)]">
-                  <span className="text-purple-400">👻</span> {lang === 'ar' ? 'ماسنجر الأصدقاء' : 'Friends Messenger'}
-                </h3>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={searchFriendName}
-                    onChange={(e) => setSearchFriendName(e.target.value)}
-                    placeholder={t.addFriendPlaceholder}
-                    className="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 min-w-0"
+                <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
+                  <img
+                    src={game.image}
+                    alt={game.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500 opacity-80"
                   />
-                  <button
-                    onClick={() => handleAddFriend(searchFriendName)}
-                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-xl active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    {t.addFriendBtn}
-                  </button>
+                  <span className="absolute top-3 left-3 text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white px-2 py-0.5 rounded">
+                    {game.badge}
+                  </span>
                 </div>
-              </div>
 
-              {/* Suggested active online users */}
-              <div className="space-y-2 shrink-0">
-                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">{t.suggestedTitle}</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {suggestedPlayers.map((player, idx) => (
+                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-white text-base">{game.title}</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">{game.description}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                    <span className={`text-xs font-semibold ${game.isReady ? 'text-emerald-400' : 'text-amber-500'}`}>
+                      {game.status}
+                    </span>
                     <button
-                      key={idx}
-                      onClick={() => handleAddFriend(player.name, player.avatar)}
-                      className="flex items-center gap-1.5 p-1 bg-slate-950/40 hover:bg-slate-950 border border-slate-850 hover:border-slate-800 rounded-xl transition-all text-left text-[9px] font-bold cursor-pointer min-w-0"
-                    >
-                      <img src={player.avatar} alt={player.name} className="w-4 h-4 rounded-full bg-slate-900 shrink-0" />
-                      <span className="truncate text-slate-350">{player.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Scrollable Friends list (Messenger Style) */}
-              <div className="flex-1 overflow-y-auto space-y-2 mt-2 pr-1 scrollbar-thin">
-                {friends.map((friend) => {
-                  const isActive = activeChatFriendId === friend.id;
-                  return (
-                    <div
-                      key={friend.id}
-                      onClick={() => setActiveChatFriendId(friend.id)}
-                      className={`flex items-center justify-between p-2 rounded-xl text-xs gap-3 transition-all cursor-pointer border ${isActive
-                          ? 'bg-indigo-950/30 border-indigo-500/40'
-                          : 'bg-slate-950/40 border-transparent hover:bg-slate-950/60'
+                      disabled={!game.isReady}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (game.isReady) handlePlayGame(game.id);
+                      }}
+                      className={`px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${game.isReady
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white border-transparent cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                          : 'bg-black/50 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60'
                         }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="relative">
-                          <img src={friend.avatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800" />
-                          {!friend.blocked && <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-slate-950 animate-pulse"></div>}
-                        </div>
-                        <div className="min-w-0">
-                          <p className={`font-bold truncate ${friend.blocked ? 'text-slate-500 line-through font-normal' : 'text-slate-200'}`}>
-                            {friend.name}
-                          </p>
-                          <p className="text-[9px] text-slate-500 truncate">
-                            {friend.blocked ? (lang === 'ar' ? 'محظور 🚫' : 'Blocked 🚫') : (lang === 'ar' ? 'نشط الآن' : 'Active Now')}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Quick block/delete controls */}
-                      <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {!friend.blocked ? (
-                          <button
-                            onClick={() => handleBlockFriend(friend.id)}
-                            className="p-1 bg-rose-950/20 border border-rose-900/30 hover:bg-rose-900/40 text-rose-400 rounded-lg transition-all cursor-pointer text-[10px]"
-                            title={t.blockBtn}
-                          >
-                            🚫
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleUnblockFriend(friend.id)}
-                            className="p-1 bg-emerald-950/20 border border-emerald-900/30 hover:bg-emerald-900/40 text-emerald-400 rounded-lg transition-all cursor-pointer text-[10px]"
-                            title={t.unblockBtn}
-                          >
-                            🔓
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleRemoveFriend(friend.id)}
-                          className="p-1 bg-slate-900 hover:bg-slate-850 text-slate-400 rounded-lg transition-all cursor-pointer text-[10px]"
-                          title={t.unfriendBtn}
-                        >
-                          ❌
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {friends.length === 0 && (
-                  <div className="text-center text-[10.5px] text-slate-500 italic py-6">
-                    {lang === 'ar' ? 'لا يوجد أصدقاء بعد. أضف بعض اللاعبين للدردشة!' : 'No friends yet. Add some players!'}
+                      {game.isReady ? t.playGame : (lang === 'ar' ? 'قريباً' : 'Coming Soon')}
+                    </button>
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-
+            ))}
           </div>
         </div>
       </main>
+
+      {/* --- FLOATING TAB MODAL (صفحات طايرة: ليفيل / المهام اليومية / الدردشة) --- */}
+      {activeDrawerTab && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          onClick={() => setActiveDrawerTab(null)}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-3 sm:p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full ${activeDrawerTab === 'chat' ? 'max-w-2xl' : 'max-w-md'} bg-[#0b0f19] border border-indigo-500/40 rounded-3xl shadow-[0_0_50px_rgba(79,70,229,0.3)] flex flex-col max-h-[88dvh] overflow-hidden`}
+          >
+            {/* Floating Modal Top Bar with Quick Switch Tabs & Close */}
+            <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-950/80 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'level' as const, icon: '🎖️', label: lang === 'ar' ? 'ليفيل' : 'Level' },
+                  { id: 'quests' as const, icon: '🎯', label: lang === 'ar' ? 'المهام اليومية' : 'Quests' },
+                  { id: 'chat' as const, icon: '💬', label: lang === 'ar' ? 'الدردشة' : 'Chat' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveDrawerTab(item.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      activeDrawerTab === item.id
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveDrawerTab(null)}
+                className="w-8 h-8 rounded-xl bg-slate-900 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-white flex items-center justify-center text-xs font-black cursor-pointer shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+              {/* TAB 1: ليفيل (Image 1) */}
+              {activeDrawerTab === 'level' && (
+                <section className="bg-gradient-to-b from-indigo-900/30 to-black/30 rounded-2xl p-5 border border-indigo-500/30 shadow-[inset_0_0_20px_rgba(99,102,241,0.1)] space-y-5">
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={profile.avatar_url}
+                      alt="Avatar"
+                      className="w-16 h-16 rounded-full bg-slate-950 p-1 border-2 border-indigo-500 shadow-xl shadow-indigo-950/50"
+                    />
+                    <div>
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                        {profile.username}
+                        <span className="text-xs px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
+                          {t.playerBadge}
+                        </span>
+                      </h2>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 bg-amber-950/40 border border-amber-900/30 px-2 py-0.5 rounded-md">
+                          {t.generalLevel}: Level {generalLevel}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Wins/Losses Ratio */}
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800/80 text-center">
+                    <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-3">
+                      <span className="block text-2xl font-black text-emerald-400">{profile.wins}</span>
+                      <span className="text-xs text-slate-400 font-medium">{t.winsLabel}</span>
+                    </div>
+                    <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-3">
+                      <span className="block text-2xl font-black text-rose-400">{profile.losses}</span>
+                      <span className="text-xs text-slate-400 font-medium">{t.lossesLabel}</span>
+                    </div>
+                  </div>
+
+                  {/* PROGRESS SYSTEM DETAILS PANEL */}
+                  <div className="space-y-4 pt-4 border-t border-slate-800/80">
+                    <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                      <span>🎖️</span> {t.gameLevels}
+                    </h4>
+
+                    <div className="space-y-3.5">
+                      {[
+                        { name: lang === 'ar' ? '🎲 لعبة الدومينو' : 'Dominoes', info: dominoLevelInfo },
+                        { name: lang === 'ar' ? '🔴 كازينو أونو' : 'UNO Casino', info: unoLevelInfo },
+                        { name: lang === 'ar' ? '🎰 استميشن الملوك' : 'Estimation Casino', info: estimationLevelInfo },
+                        { name: lang === 'ar' ? '⚔️ شطرنج القتال 3D' : '3D Combat Chess', info: chessLevelInfo },
+                        { name: lang === 'ar' ? '🤖 معارك السايبر' : 'Cyber Arena Battles', info: cyberArenaLevelInfo },
+                        { name: lang === 'ar' ? '🎲 لعبة الطاولة (الشيش)' : 'Backgammon', info: backgammonLevelInfo },
+                      ].map((g, idx) => {
+                        const pct = Math.min(100, Math.round((g.info.currentXp / g.info.nextXpRequired) * 100));
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold">
+                              <span className="text-slate-300">{g.name}</span>
+                              <span className="text-indigo-300">Level {g.info.level}</span>
+                            </div>
+                            <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-800/80 relative">
+                              <div
+                                className="bg-gradient-to-r from-indigo-600 to-indigo-400 h-full rounded-full transition-all duration-500"
+                                style={{ width: `${pct}%` }}
+                              ></div>
+                            </div>
+                            <div className="flex justify-between text-[8px] text-slate-500 font-mono">
+                              <span>XP: {g.info.currentXp}</span>
+                              <span>Next: {g.info.nextXpRequired} XP (+50% req)</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* TAB 2: المهام اليومية (Image 2) */}
+              {activeDrawerTab === 'quests' && (
+                <DailyQuests
+                  profile={profile}
+                  dailyQuest={dailyQuest}
+                  onUpdate={onUpdate}
+                  addToast={addToast}
+                  lang={lang}
+                />
+              )}
+
+              {/* TAB 3: الدردشة (Image 3 + Friends Messenger Switcher) */}
+              {activeDrawerTab === 'chat' && (
+                <div className="space-y-3">
+                  {/* Switcher between Challenge Rooms Chat & Friends Messenger */}
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs font-black">
+                    <button
+                      type="button"
+                      onClick={() => setChatPopupView('lobby')}
+                      className={`py-2 rounded-lg transition-all cursor-pointer ${
+                        chatPopupView === 'lobby'
+                          ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-400/50'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🎮 {lang === 'ar' ? 'الشات العام وغرف التحدي' : 'Lobby & Challenge Chat'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChatPopupView('friends')}
+                      className={`py-2 rounded-lg transition-all cursor-pointer ${
+                        chatPopupView === 'friends'
+                          ? 'bg-purple-600/30 text-purple-300 border border-purple-400/50'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      👻 {lang === 'ar' ? 'ماسنجر الأصدقاء' : 'Friends Messenger'}
+                    </button>
+                  </div>
+
+                  {chatPopupView === 'lobby' ? (
+                    <div className="bg-gradient-to-br from-cyan-900/30 via-slate-900/40 to-blue-900/20 rounded-2xl p-4 sm:p-5 border border-cyan-400/30 space-y-4">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800/80 pb-3 gap-3">
+                        <div>
+                          <h3 className="text-base sm:text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 flex items-center gap-2">
+                            <span className="text-cyan-400">🎮</span> {lang === 'ar' ? 'مكتبة الألعاب وغرف التحدي' : 'Game Library & Matchmaking Lobby'}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {lang === 'ar' ? 'أنشئ دور لعب أو ابحث عن التحديات النشطة للانضمام واللعب فوراً!' : 'Create rooms or join active match sessions directly from the chat feed!'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                          <select
+                            value={selectedGameForSession}
+                            onChange={(e) => setSelectedGameForSession(e.target.value)}
+                            className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none"
+                          >
+                            <option value="domino-game">🎲 {lang === 'ar' ? 'لعبة الدومينو' : 'Dominoes'}</option>
+                            <option value="uno-game">🔴 {lang === 'ar' ? 'كازينو أونو' : 'UNO'}</option>
+                            <option value="estimation-game">🎰 {lang === 'ar' ? 'كازينو الاستميشن' : 'Estimation'}</option>
+                            <option value="cyber-arena">🤖 {lang === 'ar' ? 'معارك السايبر' : 'Cyber Arena'}</option>
+                            <option value="backgammon-game">🎲 {lang === 'ar' ? 'لعبة الطاولة' : 'Backgammon'}</option>
+                          </select>
+
+                          <button
+                            onClick={() => handleCreateSession(selectedGameForSession)}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer shadow-lg shadow-indigo-900/20 whitespace-nowrap"
+                          >
+                            {lang === 'ar' ? '➕ إنشاء دور لعب' : '➕ Create Room'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="h-[300px] bg-slate-950 border border-slate-850 rounded-2xl p-4 overflow-y-auto space-y-4 scrollbar-thin">
+                        {lobbyMessages.map((msg) => (
+                          <div key={msg.id} className="flex gap-3 text-xs items-start">
+                            <img src={msg.senderAvatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800" />
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-indigo-300">{msg.senderName}</span>
+                                <span className="text-[9px] text-slate-500 font-mono">{msg.time}</span>
+                              </div>
+
+                              <p className="text-slate-300 text-xs">{msg.text}</p>
+
+                              {msg.session && (
+                                <div className="mt-2 p-3 bg-indigo-950/20 border border-indigo-500/20 rounded-xl flex items-center justify-between gap-4 max-w-sm">
+                                  <div>
+                                    <p className="font-bold text-white text-[11px]">{msg.session.gameTitle}</p>
+                                    <p className="text-[9px] text-indigo-400 mt-0.5">{lang === 'ar' ? `المستضيف: ${msg.session.hostName}` : `Hosted by: ${msg.session.hostName}`}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setActiveDrawerTab(null);
+                                      handlePlayGame(msg.session!.gameId);
+                                    }}
+                                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 text-[10px] font-black rounded-lg hover:from-amber-500 hover:to-amber-400 active:scale-95 transition-all cursor-pointer border border-amber-400"
+                                  >
+                                    {lang === 'ar' ? '🕹️ انضم الآن' : '🕹️ Join now'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2.5">
+                        <input
+                          type="text"
+                          value={lobbyText}
+                          onChange={(e) => setLobbyText(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSendLobbyMessage()}
+                          placeholder={lang === 'ar' ? 'اكتب رسالة للدردشة والمشاكسة مع الموجودين باللوبي...' : 'Broadcast message to portal lobby chat...'}
+                          className="flex-1 bg-black/50 border border-purple-500/30 rounded-xl px-4 py-2.5 text-xs text-purple-100 focus:outline-none focus:border-purple-400 placeholder-purple-400/40"
+                        />
+                        <button
+                          onClick={handleSendLobbyMessage}
+                          className="px-5 py-2.5 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer"
+                        >
+                          {t.sendBtn}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-br from-fuchsia-900/30 via-slate-900/40 to-indigo-900/20 border border-fuchsia-400/30 rounded-2xl flex flex-col h-[480px] overflow-hidden">
+                      {/* Chat Window Panel */}
+                      <div className="flex-1 flex flex-col justify-between bg-black/20 p-4 overflow-hidden">
+                        {activeChatFriend ? (
+                          <>
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 shrink-0">
+                              <div className="flex items-center gap-2.5">
+                                <img src={activeChatFriend.avatar} alt="Avatar" className="w-8 h-8 rounded-full bg-slate-950 border border-slate-800" />
+                                <div>
+                                  <span className="text-xs font-black text-amber-400 block">{activeChatFriend.name}</span>
+                                  <p className="text-[9px] text-slate-500">
+                                    {activeChatFriend.blocked
+                                      ? (lang === 'ar' ? 'الصديق محظور - قم بإلغاء الحظر للمراسلة' : 'Friend Blocked - Unblock to chat')
+                                      : (lang === 'ar' ? 'دردشة نشطة' : 'Active Chat')}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto py-3 space-y-3 scrollbar-thin pr-1">
+                              {activeChatFriend.chatHistory.map((h, i) => (
+                                <div
+                                  key={i}
+                                  className={`flex flex-col ${h.sender === 'you' ? 'items-end' : 'items-start'} space-y-1`}
+                                >
+                                  <div
+                                    className={`px-3 py-2 rounded-2xl border text-[10.5px] max-w-[85%] leading-relaxed ${h.sender === 'you'
+                                        ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-200 rounded-tr-none'
+                                        : 'bg-slate-950/60 border-slate-800 text-slate-300 rounded-tl-none'
+                                      }`}
+                                  >
+                                    {h.text}
+                                  </div>
+                                  <span className="text-[7px] text-slate-600 font-mono px-1.5">{h.time}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex gap-2 pt-3 border-t border-slate-800/80 shrink-0">
+                              <input
+                                type="text"
+                                value={typedMessage}
+                                onChange={(e) => setTypedMessage(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                                placeholder={activeChatFriend.blocked ? (lang === 'ar' ? 'قم بإلغاء حظر الصديق أولاً لإرسال الرسائل!' : 'Unblock first to chat!') : t.chatPlaceholder}
+                                disabled={activeChatFriend.blocked}
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed min-w-0"
+                              />
+                              <button
+                                onClick={handleSendMessage}
+                                disabled={activeChatFriend.blocked}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                              >
+                                {t.sendBtn}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                            <span className="text-4xl animate-bounce mb-2">👻</span>
+                            <p className="text-xs text-slate-400 leading-relaxed italic max-w-xs">
+                              {lang === 'ar'
+                                ? 'اختر صديقاً من القائمة بالأسفل لبدء المحادثة، أو أضف صديقاً جديداً!'
+                                : 'Select a friend below to start chatting, or add new friends.'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Friends List Panel */}
+                      <div className="bg-black/40 p-3.5 border-t border-purple-500/20 flex flex-col gap-3 shrink-0 max-h-[52%]">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={searchFriendName}
+                            onChange={(e) => setSearchFriendName(e.target.value)}
+                            placeholder={t.addFriendPlaceholder}
+                            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 min-w-0"
+                          />
+                          <button
+                            onClick={() => handleAddFriend(searchFriendName)}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-xl active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            {t.addFriendBtn}
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {suggestedPlayers.map((player, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleAddFriend(player.name, player.avatar)}
+                              className="flex items-center gap-1.5 p-1 bg-slate-950/40 hover:bg-slate-950 border border-slate-800 rounded-xl transition-all text-left text-[9px] font-bold cursor-pointer min-w-0"
+                            >
+                              <img src={player.avatar} alt={player.name} className="w-4 h-4 rounded-full bg-slate-900 shrink-0" />
+                              <span className="truncate text-slate-300">{player.name}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+                          {friends.map((friend) => {
+                            const isActive = activeChatFriendId === friend.id;
+                            return (
+                              <div
+                                key={friend.id}
+                                onClick={() => setActiveChatFriendId(friend.id)}
+                                className={`flex items-center justify-between p-2 rounded-xl text-xs gap-3 transition-all cursor-pointer border ${isActive
+                                    ? 'bg-indigo-950/30 border-indigo-500/40'
+                                    : 'bg-slate-950/40 border-transparent hover:bg-slate-950/60'
+                                  }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <img src={friend.avatar} alt="Avatar" className="w-7 h-7 rounded-full bg-slate-900 border border-slate-800" />
+                                  <div className="min-w-0">
+                                    <p className={`font-bold truncate ${friend.blocked ? 'text-slate-500 line-through font-normal' : 'text-slate-200'}`}>
+                                      {friend.name}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  {!friend.blocked ? (
+                                    <button
+                                      onClick={() => handleBlockFriend(friend.id)}
+                                      className="p-1 bg-rose-950/20 border border-rose-900/30 hover:bg-rose-900/40 text-rose-400 rounded-lg cursor-pointer text-[10px]"
+                                      title={t.blockBtn}
+                                    >
+                                      🚫
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleUnblockFriend(friend.id)}
+                                      className="p-1 bg-emerald-950/20 border border-emerald-900/30 hover:bg-emerald-900/40 text-emerald-400 rounded-lg cursor-pointer text-[10px]"
+                                      title={t.unblockBtn}
+                                    >
+                                      🔓
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleRemoveFriend(friend.id)}
+                                    className="p-1 bg-slate-900 hover:bg-slate-800 text-slate-400 rounded-lg cursor-pointer text-[10px]"
+                                    title={t.unfriendBtn}
+                                  >
+                                    ❌
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- CHOOSE GAME SESSION MODAL --- */}
       {showSessionSelectorModal && (
