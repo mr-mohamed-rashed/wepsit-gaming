@@ -1464,6 +1464,14 @@ function LudoApp() {
     returnToRoom();
   };
 
+  const handleExitGame = () => {
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
+    } else {
+      resetGame();
+    }
+  };
+
   const isHost = userProfile?.id === roomHostId;
   const isDeputy = userProfile?.id === roomDeputyId || (userProfile?.id ? moderatorIds.includes(userProfile.id) : false);
   const canAccessSettings = isHost || isDeputy;
@@ -3257,8 +3265,8 @@ function LudoApp() {
             rollDice();
           }
         }}
-        className={`relative w-9 h-9 sm:w-11 sm:h-11 flex items-center justify-center select-none ${
-          canClick ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'
+        className={`relative w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center select-none scale-[0.78] sm:scale-95 origin-center ${
+          canClick ? 'cursor-pointer hover:scale-90 sm:hover:scale-105 active:scale-75' : 'cursor-default'
         }`}
         title={canClick ? (lang === 'ar' ? 'انقر لرمي النرد ثلاثي الأبعاد!' : 'Click to roll 3D dice!') : ''}
         style={{ perspective: '350px' }}
@@ -3481,233 +3489,122 @@ function LudoApp() {
         )}
 
         {!isPresent ? (
-          <div className="w-full h-full flex flex-col items-center justify-center opacity-30 text-white">
-            <span className="text-xl">🔒</span>
-            <span className="text-[9px] font-bold mt-1">{lang === 'ar' ? 'مقعد شاغر' : 'Empty'}</span>
-          </div>
+          <div className="w-full h-full" />
         ) : (
           <>
-            {isTop ? (
-              /* Profile Header + Dice for Top Bases (Green & Yellow) */
-              <div className="w-full flex items-center justify-between gap-1">
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const seatUser = tableSeats[baseColor];
-                    handleUserClick({
-                      id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
-                      name: seatUser?.name || dispName,
-                      avatar: seatUser?.avatar || avatarImg,
-                      seatColor: baseColor,
-                      isBot,
-                      isDeputy: seatUser?.isDeputy,
-                    });
-                  }}
-                  className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
-                  title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
-                >
-                  {/* Avatar with Circular Countdown Ring */}
-                  <div className="relative shrink-0 flex items-center justify-center">
-                    {isTurn && gameStarted && !winner && (
-                      <svg key={`ring-top-${turn}-${gameState}`} className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
-                        <circle
-                          cx="50%"
-                          cy="50%"
-                          r="44%"
-                          fill="none"
-                          stroke="rgba(255,255,255,0.2)"
-                          strokeWidth="3"
-                        />
-                        <circle
-                          cx="50%"
-                          cy="50%"
-                          r="44%"
-                          fill="none"
-                          strokeWidth="3.5"
-                          strokeDasharray="100"
-                          strokeLinecap="round"
-                          className="animate-turn-countdown"
-                          pathLength="100"
-                        />
-                      </svg>
-                    )}
-                    <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base ${
-                      isTurn && gameStarted && !winner ? 'ring-2 ring-amber-400' : ''
-                    }`}>
-                      <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
-                      {avatarImg && (
-                        <img
-                          src={avatarImg}
-                          alt={dispName}
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = 'none';
-                          }}
-                        />
+            {(() => {
+              const playerId = tableSeats[baseColor]?.id || `user-${baseColor}`;
+              const isMutedSeat = mutedUserIds.includes(playerId);
+              const isModSeat = moderatorIds.includes(playerId) || tableSeats[baseColor]?.isDeputy;
+
+              const profileBlock = (
+                <div className="w-full flex flex-col gap-0.5">
+                  <div className="w-full flex items-center justify-between gap-1">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const seatUser = tableSeats[baseColor];
+                        handleUserClick({
+                          id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                          name: seatUser?.name || dispName,
+                          avatar: seatUser?.avatar || avatarImg,
+                          seatColor: baseColor,
+                          isBot,
+                          isDeputy: seatUser?.isDeputy,
+                        });
+                      }}
+                      className="relative shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-95"
+                      title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
+                    >
+                      {isTurn && gameStarted && !winner && (
+                        <svg key={`ring-${baseColor}-${turn}-${gameState}`} className="absolute -inset-1 w-[calc(100%+8px)] h-[calc(100%+8px)] -rotate-90 pointer-events-none z-20 overflow-visible">
+                          <circle
+                            cx="50%"
+                            cy="50%"
+                            r="44%"
+                            fill="none"
+                            stroke="rgba(255,255,255,0.22)"
+                            strokeWidth="3"
+                          />
+                          <circle
+                            cx="50%"
+                            cy="50%"
+                            r="44%"
+                            fill="none"
+                            strokeWidth="3.5"
+                            strokeDasharray="100"
+                            strokeLinecap="round"
+                            className="animate-turn-countdown"
+                            pathLength="100"
+                          />
+                        </svg>
                       )}
-                      {/* Mic indicator */}
-                      <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
-                        {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
+                      <div className={`relative w-7 h-7 sm:w-9 sm:h-9 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shadow bg-slate-950/40 flex items-center justify-center text-xs sm:text-sm ${
+                        isTurn && gameStarted && !winner ? 'ring-2 ring-amber-300' : ''
+                      }`}>
+                        <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
+                        {avatarImg && (
+                          <img
+                            src={avatarImg}
+                            alt={dispName}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ${isMutedSeat ? 'bg-rose-600' : 'bg-emerald-600'} text-[7px] flex items-center justify-center shadow z-10 text-white font-black`}>
+                          {isMutedSeat ? '🔇' : '🎙️'}
+                        </div>
+                        {isModSeat && (
+                          <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                        )}
                       </div>
-                      {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
-                        <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                      )}
+                    </div>
+
+                    <div className="shrink-0">
+                      {renderDiceWidget(baseColor)}
                     </div>
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
-                        {dispName}
-                      </span>
-                      {!isBlue && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const seatUser = tableSeats[baseColor];
-                            handleSendFriendRequest(seatUser?.id || `user-${baseColor}`, dispName);
-                          }}
-                          className={`px-1.5 py-0.2 rounded-full text-[8px] font-black shrink-0 transition-all ${
-                            sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`)
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-purple-600 hover:bg-purple-500 text-white active:scale-90'
-                          }`}
-                          title={lang === 'ar' ? 'إضافة صديق' : 'Add Friend'}
-                        >
-                          {sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '✓' : '👤+'}
-                        </button>
-                      )}
-                    </div>
-                    {isBlue && (
-                      <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
-                        🪙 {playerCoins}
-                      </span>
-                    )}
-                  </div>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const seatUser = tableSeats[baseColor];
+                      handleUserClick({
+                        id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                        name: seatUser?.name || dispName,
+                        avatar: seatUser?.avatar || avatarImg,
+                        seatColor: baseColor,
+                        isBot,
+                        isDeputy: seatUser?.isDeputy,
+                      });
+                    }}
+                    className="w-full text-[9px] sm:text-[11px] font-black text-white truncate block leading-tight text-center drop-shadow-sm cursor-pointer"
+                  >
+                    {dispName}
+                  </span>
                 </div>
+              );
 
-                <div className="shrink-0">
-                  {renderDiceWidget(baseColor)}
+              const padsBlock = (
+                <div className="w-full flex items-center justify-around py-0.5 px-0.5">
+                  {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
                 </div>
-              </div>
-            ) : (
-              /* 4 Token Home Pads for Bottom Bases (Red & Blue) */
-              <div className="w-full flex items-center justify-around py-0.5 px-1 my-0.5">
-                {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
-              </div>
-            )}
+              );
 
-            {isTop ? (
-              /* 4 Token Home Pads for Top Bases (Green & Yellow) */
-              <div className="w-full flex items-center justify-around py-0.5 px-1 my-0.5">
-                {slotIndices.map(idx => renderTokenHomeSlot(baseColor, idx))}
-              </div>
-            ) : (
-              /* Profile Footer + Dice for Bottom Bases (Red & Blue - Exact Match to Image 1!) */
-              <div className="w-full flex items-center justify-between gap-1 mt-auto pt-0.5">
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const seatUser = tableSeats[baseColor];
-                    handleUserClick({
-                      id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
-                      name: seatUser?.name || dispName,
-                      avatar: seatUser?.avatar || avatarImg,
-                      seatColor: baseColor,
-                      isBot,
-                      isDeputy: seatUser?.isDeputy,
-                    });
-                  }}
-                  className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90 active:scale-95"
-                  title={lang === 'ar' ? 'انقر للملف الشخصي / الإشراف' : 'Click for profile / moderation'}
-                >
-                  {/* Avatar with Circular Countdown Ring */}
-                  <div className="relative shrink-0 flex items-center justify-center">
-                    {isTurn && gameStarted && !winner && (
-                      <svg key={`ring-top-${turn}-${gameState}`} className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
-                        <circle
-                          cx="50%"
-                          cy="50%"
-                          r="44%"
-                          fill="none"
-                          stroke="rgba(255,255,255,0.2)"
-                          strokeWidth="3"
-                        />
-                        <circle
-                          cx="50%"
-                          cy="50%"
-                          r="44%"
-                          fill="none"
-                          strokeWidth="3.5"
-                          strokeDasharray="100"
-                          strokeLinecap="round"
-                          className="animate-turn-countdown"
-                          pathLength="100"
-                        />
-                      </svg>
-                    )}
-                    <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${colorConfig.avatarBorder} overflow-hidden shadow-md bg-slate-950/40 flex items-center justify-center text-sm sm:text-base ${
-                      isTurn && gameStarted && !winner ? 'ring-2 ring-amber-400' : ''
-                    }`}>
-                      <span className="select-none pointer-events-none">{colorConfig.fallbackAvatar}</span>
-                      {avatarImg && (
-                        <img
-                          src={avatarImg}
-                          alt={dispName}
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      )}
-                      {/* Mic indicator */}
-                      <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? 'bg-rose-600' : 'bg-emerald-600'} text-[8px] flex items-center justify-center shadow z-10 text-white font-black`}>
-                        {mutedUserIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '🔇' : '🎙️'}
-                      </div>
-                      {(moderatorIds.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) || tableSeats[baseColor]?.isDeputy) && (
-                        <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] sm:text-xs font-black text-white truncate block drop-shadow-sm leading-tight">
-                        {dispName}
-                      </span>
-                      {!isBlue && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const seatUser = tableSeats[baseColor];
-                            handleSendFriendRequest(seatUser?.id || `user-${baseColor}`, dispName);
-                          }}
-                          className={`px-1.5 py-0.2 rounded-full text-[8px] font-black shrink-0 transition-all ${
-                            sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`)
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-purple-600 hover:bg-purple-500 text-white active:scale-90'
-                          }`}
-                          title={lang === 'ar' ? 'إضافة صديق' : 'Add Friend'}
-                        >
-                          {sentFriendRequests.includes(tableSeats[baseColor]?.id || `user-${baseColor}`) ? '✓' : '👤+'}
-                        </button>
-                      )}
-                    </div>
-                    {isBlue && (
-                      <span className="text-[8px] sm:text-[9px] font-black text-amber-200 flex items-center gap-0.5">
-                        🪙 {playerCoins}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="shrink-0">
-                  {renderDiceWidget(baseColor)}
-                </div>
-              </div>
-            )}
+              return isTop ? (
+                <>
+                  {profileBlock}
+                  {padsBlock}
+                </>
+              ) : (
+                <>
+                  {padsBlock}
+                  {profileBlock}
+                </>
+              );
+            })()}
           </>
         )}
       </div>
@@ -3767,15 +3664,17 @@ function LudoApp() {
         />
       )}
 
-      {/* Floating Side Settings Button (بديل الهيدر العلوي لتوفير المساحة على الموبايل) */}
-      <button
-        type="button"
-        onClick={() => setShowSettingsModal(true)}
-        className="fixed top-2 left-2 z-40 w-9 h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border-2 border-amber-400/75 text-amber-300 flex items-center justify-center text-base shadow-lg active:scale-90 transition-transform cursor-pointer"
-        title={lang === 'ar' ? 'الإعدادات والتحكم السريع ⚙️' : 'Settings & Quick Controls ⚙️'}
-      >
-        ⚙️
-      </button>
+      {/* Floating Side Settings Button in Lobby Screens */}
+      {!gameStarted && (
+        <button
+          type="button"
+          onClick={() => setShowSettingsModal(true)}
+          className="fixed top-2 left-2 z-40 w-9 h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border-2 border-amber-400/75 text-amber-300 flex items-center justify-center text-base shadow-lg active:scale-90 transition-transform cursor-pointer"
+          title={lang === 'ar' ? 'الإعدادات والتحكم السريع ⚙️' : 'Settings & Quick Controls ⚙️'}
+        >
+          ⚙️
+        </button>
+      )}
 
       {/* Main Content Area */}
       {!gameStarted ? (
@@ -4553,127 +4452,43 @@ function LudoApp() {
             backgroundRepeat: 'repeat'
           }}
         >
-          {/* 1. COMPACT TOP BAR: Profile Chip, Mic Seats & Status (space left on the left side for floating ⚙️ button) */}
-          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0 pl-12">
-            {/* Row 1: User Profile Chip + Spectator / Voice Seats Bar */}
-            <div className="w-full flex items-center justify-between gap-1.5">
-              {/* Spectator / Voice Seats Bar */}
-              <div
-                ref={micSeatsScrollRef}
-                onMouseDown={handleMicMouseDown}
-                onMouseLeave={handleMicMouseLeaveOrUp}
-                onMouseUp={handleMicMouseLeaveOrUp}
-                onMouseMove={handleMicMouseMove}
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                className="flex items-center gap-1 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/45 rounded-full border border-white/10 no-scrollbar [&::-webkit-scrollbar]:hidden flex-1 min-w-0"
-              >
-                {/* Level / Room Rank Badge */}
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-950/90 border border-emerald-400/60 flex items-center justify-center text-[9px] font-black text-amber-300 shadow shrink-0">
-                  ⭐ 2
-                </div>
-
-                {/* Empty Seats with + */}
-                {[1, 2, 3].map(seatIdx => (
-                  <button
-                    key={`seat-${seatIdx}`}
-                    type="button"
-                    onClick={() => {
-                      setStatusMessage(lang === 'ar' ? '🎤 المقعد الصوتي متاح، تم حجز دورك!' : '🎤 Voice seat available!');
-                      addChatMessage(lang === 'ar' ? '🎤 انضممت إلى المقعد الصوتي للمتفرجين.' : 'Joined voice seat.', 'system');
-                    }}
-                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white/10 border border-white/20 hover:border-amber-400 hover:bg-amber-400/20 flex items-center justify-center text-[10px] text-slate-300 transition-all shadow shrink-0 cursor-pointer active:scale-90"
-                    title={lang === 'ar' ? 'انضم للمقعد الصوتي' : 'Join Voice Seat'}
-                  >
-                    +
-                  </button>
-                ))}
-
-                {/* Seated Participant 1: Al-Sahir (الساحر بإطار ذهبي ومايك) */}
-                <div
-                  onClick={() => handleUserClick({
-                    id: 'spec-sahir',
-                    name: 'الساحر',
-                    avatar: '/laugh_emote.png',
-                    isSpectator: true,
-                    isBot: false,
-                  })}
-                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-amber-400 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
-                  title="الساحر (انقر للإشراف / الملف)"
+          {/* 1. CLEAN 3-ROW TOP BAR (Matching Reference Screenshot) */}
+          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0">
+            {/* Row 1: Power + Trophy on left | User Profile Chip on right */}
+            <div dir="ltr" className="w-full flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExitGame}
+                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-rose-950/80 border border-white/20 flex items-center justify-center text-sm text-white transition-colors cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'خروج من اللعبة' : 'Exit Game'}
                 >
-                  <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
-                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
-                    {mutedUserIds.includes('spec-sahir') ? '🔇' : '🎙️'}
-                  </div>
-                  {moderatorIds.includes('spec-sahir') && (
-                    <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                  )}
-                </div>
-
-                {/* 👑 ROOM HOST ON MIC (صاحب الغرفة على المايك دايماً كما في الصورة 1) */}
-                <div
-                  onClick={() => handleUserClick({
-                    id: roomHostId,
-                    name: roomHostName,
-                    avatar: roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png',
-                    isHost: true,
-                    isDeputy: false,
-                    isMicOn: isHost ? isMicOn : true,
-                  })}
-                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-amber-400 p-0.5 shadow-[0_0_12px_rgba(251,191,36,0.6)] shrink-0 bg-slate-900 ring-2 ring-amber-400/50 cursor-pointer hover:scale-110 transition-transform"
-                  title={`${roomHostName} (👑 صاحب الغرفة على المايك)`}
+                  ⏻
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowH2HModal(true)}
+                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-amber-500/20 border border-white/20 flex items-center justify-center text-sm text-amber-300 transition-colors cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'سجل المواجهات والبطولات' : 'H2H & Leaderboard'}
                 >
-                  <img
-                    src={roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png'}
-                    alt={roomHostName}
-                    className="w-full h-full object-cover rounded-full"
-                  />
-                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(roomHostId) ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
-                    {mutedUserIds.includes(roomHostId) ? '🔇' : '🎙️'}
-                  </div>
-                  <div className="absolute -top-1.5 -right-1 text-[9px] z-10 filter drop-shadow">👑</div>
-                </div>
-
-                {/* Seated Participant 3: Mahmoud */}
-                <div
-                  onClick={() => handleUserClick({
-                    id: 'spec-mahmoud',
-                    name: 'محمود',
-                    avatar: '/kaizen_emoji_pack.png',
-                    isSpectator: true,
-                    isBot: false,
-                  })}
-                  className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-amber-300 p-0.5 shadow shrink-0 bg-slate-900 cursor-pointer hover:scale-110 transition-transform"
-                  title="محمود (انقر للإشراف / الملف)"
-                >
-                  <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
-                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center shadow text-white font-bold`}>
-                    {mutedUserIds.includes('spec-mahmoud') ? '🔇' : '🎙️'}
-                  </div>
-                  {moderatorIds.includes('spec-mahmoud') && (
-                    <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                  )}
-                </div>
-
-                {/* Locked VIP Seat */}
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 border border-slate-700/60 flex items-center justify-center text-[10px] text-slate-500 shadow shrink-0">
-                  🔒
-                </div>
+                  🏆
+                </button>
               </div>
 
-              {/* Right: User Profile Chip (Egypt Flag + Ali + ID + Add Friend Button) */}
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900/90 border border-slate-700 shadow shrink-0">
+              {/* User Profile Chip */}
+              <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/35 border border-white/15 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
                     setStatusMessage(lang === 'ar' ? '🤝 تم نسخ رابط دعوة الأصدقاء للغرفة!' : 'Copied room invite link!');
                     try { navigator.clipboard.writeText(window.location.href); } catch (e) {}
                   }}
-                  className="w-5 h-5 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center text-[9px] font-black shadow cursor-pointer active:scale-90"
+                  className="w-6 h-6 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center text-[10px] font-black shadow cursor-pointer active:scale-90"
                   title={lang === 'ar' ? 'إضافة أصدقاء للغرفة' : 'Invite Friends'}
                 >
                   👤+
                 </button>
-                <div className="w-6 h-6 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-[10px]">
+                <div className="w-7 h-7 rounded-full overflow-hidden border border-amber-400 bg-slate-800 shrink-0 relative flex items-center justify-center text-[10px]">
                   <span>👑</span>
                   {userProfile?.avatar_url && (
                     <img
@@ -4687,19 +4502,124 @@ function LudoApp() {
                   )}
                 </div>
                 <div className="text-right leading-none">
-                  <span className="text-[10px] font-black text-amber-300 flex items-center gap-0.5">
+                  <span className="text-[10px] font-black text-white flex items-center gap-0.5">
                     <span>{userProfile?.username || 'Ali'}</span>
                     <span>🇪🇬</span>
                   </span>
-                  <span className="text-[8px] text-slate-400 font-sans block mt-0.5">
+                  <span className="text-[8px] text-slate-300 font-sans block mt-0.5">
                     {userProfile?.id ? `${String(userProfile.id).slice(0, 7)} ID` : '12842582 ID'}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Sub-bar: Coin chest chip & Turn / Status badge */}
-            <div className="w-full flex items-center justify-between gap-1.5">
+            {/* Row 2: Full-Width Mic / Spectator Seats Bar */}
+            <div
+              dir="ltr"
+              ref={micSeatsScrollRef}
+              onMouseDown={handleMicMouseDown}
+              onMouseLeave={handleMicMouseLeaveOrUp}
+              onMouseUp={handleMicMouseLeaveOrUp}
+              onMouseMove={handleMicMouseMove}
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              className="w-full flex items-center justify-between gap-1.5 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1 no-scrollbar [&::-webkit-scrollbar]:hidden"
+            >
+              {/* Level / Room Rank Badge */}
+              <div className="w-8 h-8 rounded-full bg-black/35 border border-emerald-400/50 flex flex-col items-center justify-center text-[9px] font-black text-amber-300 shrink-0 leading-none">
+                <span>⭐</span>
+                <span>2</span>
+              </div>
+
+              {/* Empty Seats with + */}
+              {[1, 2, 3].map(seatIdx => (
+                <button
+                  key={`seat-${seatIdx}`}
+                  type="button"
+                  onClick={() => {
+                    setStatusMessage(lang === 'ar' ? '🎤 المقعد الصوتي متاح، تم حجز دورك!' : '🎤 Voice seat available!');
+                    addChatMessage(lang === 'ar' ? '🎤 انضممت إلى المقعد الصوتي للمتفرجين.' : 'Joined voice seat.', 'system');
+                  }}
+                  className="w-8 h-8 rounded-full bg-black/30 border border-white/20 hover:border-amber-400 hover:bg-amber-400/20 flex items-center justify-center text-xs text-slate-200 transition-all shrink-0 cursor-pointer active:scale-90"
+                  title={lang === 'ar' ? 'انضم للمقعد الصوتي' : 'Join Voice Seat'}
+                >
+                  +
+                </button>
+              ))}
+
+              {/* Seated Participant 1: Al-Sahir */}
+              <div
+                onClick={() => handleUserClick({
+                  id: 'spec-sahir',
+                  name: 'الساحر',
+                  avatar: '/laugh_emote.png',
+                  isSpectator: true,
+                  isBot: false,
+                })}
+                className="relative w-8 h-8 rounded-full border-2 border-amber-400 p-0.5 shrink-0 bg-slate-900 cursor-pointer hover:scale-105 transition-transform"
+                title="الساحر (انقر للإشراف / الملف)"
+              >
+                <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
+                  {mutedUserIds.includes('spec-sahir') ? '🔇' : '🎙️'}
+                </div>
+                {moderatorIds.includes('spec-sahir') && (
+                  <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                )}
+              </div>
+
+              {/* Room Host On Mic */}
+              <div
+                onClick={() => handleUserClick({
+                  id: roomHostId,
+                  name: roomHostName,
+                  avatar: roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png',
+                  isHost: true,
+                  isDeputy: false,
+                  isMicOn: isHost ? isMicOn : true,
+                })}
+                className="relative w-8 h-8 rounded-full border-2 border-amber-400 p-0.5 shrink-0 bg-slate-900 ring-2 ring-amber-400/50 cursor-pointer hover:scale-105 transition-transform"
+                title={`${roomHostName} (👑 صاحب الغرفة على المايك)`}
+              >
+                <img
+                  src={roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png'}
+                  alt={roomHostName}
+                  className="w-full h-full object-cover rounded-full"
+                />
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(roomHostId) ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
+                  {mutedUserIds.includes(roomHostId) ? '🔇' : '🎙️'}
+                </div>
+                <div className="absolute -top-1.5 -right-1 text-[9px] z-10">👑</div>
+              </div>
+
+              {/* Seated Participant 3: Mahmoud */}
+              <div
+                onClick={() => handleUserClick({
+                  id: 'spec-mahmoud',
+                  name: 'محمود',
+                  avatar: '/kaizen_emoji_pack.png',
+                  isSpectator: true,
+                  isBot: false,
+                })}
+                className="relative w-8 h-8 rounded-full border border-amber-300 p-0.5 shrink-0 bg-slate-900 cursor-pointer hover:scale-105 transition-transform"
+                title="محمود (انقر للإشراف / الملف)"
+              >
+                <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
+                  {mutedUserIds.includes('spec-mahmoud') ? '🔇' : '🎙️'}
+                </div>
+                {moderatorIds.includes('spec-mahmoud') && (
+                  <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                )}
+              </div>
+
+              {/* Locked VIP Seat */}
+              <div className="w-8 h-8 rounded-full bg-black/30 border border-white/15 flex items-center justify-center text-xs text-slate-400 shrink-0">
+                🔒
+              </div>
+            </div>
+
+            {/* Row 3: Treasure Chest + Compact Status + Floating-Style Settings Gear */}
+            <div dir="ltr" className="w-full flex items-center justify-between gap-2 px-0.5">
               {/* Coin Chest Button */}
               <button
                 type="button"
@@ -4712,7 +4632,7 @@ function LudoApp() {
                   playCoinChime();
                   setStatusMessage(lang === 'ar' ? '🎁 تم جمع مكافأة الصندوق اليومي (+50 🪙)!' : '🎁 Collected daily bonus (+50 🪙)!');
                 }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-black shadow cursor-pointer active:scale-95 transition-transform shrink-0"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/35 border border-amber-400/50 text-amber-300 text-[11px] font-black cursor-pointer active:scale-95 transition-transform shrink-0"
                 title={lang === 'ar' ? 'صندوق المكافآت الذهبية' : 'Coins Chest'}
               >
                 <span>🎁</span>
@@ -4720,17 +4640,27 @@ function LudoApp() {
                 <span>🪙</span>
               </button>
 
-              {/* Turn / Game Status Badge */}
-              <div className="px-2.5 py-0.5 rounded-full bg-black/60 border border-amber-400/40 text-[10px] sm:text-xs font-black text-amber-300 shadow truncate flex-1 text-center">
+              {/* Turn / Game Status Pill */}
+              <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="px-2.5 py-0.5 rounded-full bg-black/40 border border-white/15 text-[10px] font-bold text-amber-200 truncate flex-1 text-center">
                 {statusMessage}
               </div>
+
+              {/* Side Settings Gear (ترتيب باقي الأدوات بداخله) */}
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(true)}
+                className="w-8 h-8 rounded-full bg-black/35 hover:bg-slate-800 border border-white/25 text-white flex items-center justify-center text-base shadow cursor-pointer active:scale-90 transition-transform shrink-0"
+                title={lang === 'ar' ? 'الإعدادات والتحكم السريع ⚙️' : 'Settings & Quick Controls ⚙️'}
+              >
+                ⚙️
+              </button>
             </div>
           </div>
 
           {/* 2. CENTER LUDO BOARD: Auto-scales to fit 100% inside 100dvh with ZERO scroll */}
           <div
             dir="ltr"
-            className="w-[min(96vw,440px,calc(100dvh-205px))] aspect-square rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10"
+            className="w-[min(96vw,440px,calc(100dvh-245px))] aspect-square rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10"
           >
             {/* Bottom Layer: Unified 15x15 Board Grid with clean gaps separating all squares & bases */}
             <div
@@ -4765,13 +4695,13 @@ function LudoApp() {
             </div>
           </div>
 
-          {/* 3. COMPACT LIVE CHAT TICKER & BOTTOM TOOLBAR */}
+          {/* 3. CLEAN OPEN CHAT TICKER & BOTTOM TOOLBAR (Matching Reference Layout) */}
           <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0">
-            {/* Chat Tabs & Live Ticker */}
-            <div className="w-full bg-black/55 border border-white/10 rounded-xl px-2 py-1 flex flex-col gap-0.5">
+            {/* Chat Tabs & Translucent Feed */}
+            <div className="w-full px-1.5 flex flex-col gap-0.5">
               {/* Category Pills: جميع, هدية, خبر */}
-              <div className="flex items-center justify-between border-b border-white/10 pb-0.5">
-                <div className="flex items-center gap-1.5 text-[10px] font-black">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[10px] font-black">
                   {[
                     { id: 'all', labelAr: 'جميع', labelEn: 'All' },
                     { id: 'gift', labelAr: 'هدية', labelEn: 'Gifts' },
@@ -4783,28 +4713,28 @@ function LudoApp() {
                       onClick={() => setChatTab(tab.id as any)}
                       className={`px-2 py-0.2 rounded-full transition-colors cursor-pointer ${
                         chatTab === tab.id
-                          ? 'bg-amber-400 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'text-white bg-white/15'
+                          : 'text-slate-300/70 hover:text-white'
                       }`}
                     >
                       {lang === 'ar' ? tab.labelAr : tab.labelEn}
                     </button>
                   ))}
                 </div>
-                <span className="text-[9px] text-slate-400">
+                <span className="text-[9px] text-slate-300/70">
                   {lang === 'ar' ? 'غرفة #4082' : 'Room #4082'}
                 </span>
               </div>
 
               {/* Ticker Feed Messages */}
-              <div className="h-8 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
+              <div className="h-7 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
                 {chatMessages
                   .filter(m => chatTab === 'all' || m.type === chatTab)
-                  .slice(0, 3)
+                  .slice(0, 2)
                   .map(msg => (
-                    <div key={msg.id} className="flex items-center gap-1.5 text-slate-200 truncate">
+                    <div key={msg.id} className="flex items-center gap-1.5 text-slate-100 truncate">
                       {msg.user && (
-                        <span className="text-amber-400 font-bold shrink-0">
+                        <span className="text-amber-300 font-bold shrink-0">
                           @{msg.user}:
                         </span>
                       )}
@@ -4891,72 +4821,81 @@ function LudoApp() {
                 </div>
               )}
 
-              {/* Gift Modal Trigger 🎁 */}
-              <button
-                type="button"
-                onClick={() => setSelectedGiftTarget('red')}
-                className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-lg shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer border border-amber-300"
-                title={lang === 'ar' ? 'صندوق الهدايا والمقالب 🎁' : 'Gift Box 🎁'}
-              >
-                🎁
-              </button>
+              <div dir="ltr" className="w-full flex items-center justify-between gap-2">
+                {/* Left Cluster: Gift, Menu, History */}
+                <div className="flex items-center gap-2">
+                  {/* Gift Modal Trigger 🎁 */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGiftTarget('red')}
+                    className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-lg shadow hover:scale-105 active:scale-95 transition-transform cursor-pointer border border-amber-300"
+                    title={lang === 'ar' ? 'صندوق الهدايا والمقالب 🎁' : 'Gift Box 🎁'}
+                  >
+                    🎁
+                  </button>
 
-              {/* Grid Menu Button 🪟 */}
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(true)}
-                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-all cursor-pointer"
-                title={lang === 'ar' ? 'القائمة' : 'Menu'}
-              >
-                🪟
-              </button>
+                  {/* Grid Menu Button ⊞ */}
+                  <button
+                    type="button"
+                    onClick={() => setShowSettingsModal(true)}
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    title={lang === 'ar' ? 'القائمة والإعدادات' : 'Menu & Settings'}
+                  >
+                    ⊞
+                  </button>
 
-              {/* Mail / Notifications Button ✉️ */}
-              <button
-                type="button"
-                onClick={() => setShowH2HModal(true)}
-                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-all cursor-pointer"
-                title={lang === 'ar' ? 'سجل المواجهات' : 'History'}
-              >
-                ✉️
-              </button>
+                  {/* Mail / History Button ✉️ */}
+                  <button
+                    type="button"
+                    onClick={() => setShowH2HModal(true)}
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-sm shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    title={lang === 'ar' ? 'سجل المواجهات' : 'History'}
+                  >
+                    ✉️
+                  </button>
+                </div>
 
-              {/* Mic Toggle Button 🎙️ */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMicMuted(prev => !prev);
-                  setStatusMessage(!isMicMuted ? (lang === 'ar' ? '🔇 تم كتم المايك' : 'Mic muted') : (lang === 'ar' ? '🎙️ تم تشغيل المايك' : 'Mic unmuted'));
-                }}
-                className={`w-9 h-9 rounded-full border text-sm flex items-center justify-center shadow active:scale-95 transition-all cursor-pointer ${
-                  isMicMuted
-                    ? 'bg-rose-950/80 border-rose-600 text-rose-300'
-                    : 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
-                }`}
-                title={isMicMuted ? 'تفعيل المايك' : 'كتم المايك'}
-              >
-                {isMicMuted ? '🔇' : '🎙️'}
-              </button>
+                {/* Right Cluster: Mic, Smileys, Quick Chat */}
+                <div className="flex items-center gap-2">
+                  {/* Mic Toggle Button 🎙️ */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMicMuted(prev => !prev);
+                      setStatusMessage(!isMicMuted ? (lang === 'ar' ? '🔇 تم كتم المايك' : 'Mic muted') : (lang === 'ar' ? '🎙️ تم تشغيل المايك' : 'Mic unmuted'));
+                    }}
+                    className={`w-9 h-9 rounded-full border text-sm flex items-center justify-center shadow active:scale-95 transition-transform cursor-pointer ${
+                      isMicMuted
+                        ? 'bg-rose-950/80 border-rose-500 text-rose-300'
+                        : 'bg-black/45 border-emerald-400/70 text-emerald-300'
+                    }`}
+                    title={isMicMuted ? 'تفعيل المايك' : 'كتم المايك'}
+                  >
+                    {isMicMuted ? '🔇' : '🎙️'}
+                  </button>
 
-              {/* Smileys / Emotes Picker Button 😄 */}
-              <button
-                type="button"
-                onClick={() => setShowEmotesBar(prev => !prev)}
-                className="w-9 h-9 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 flex items-center justify-center text-lg shadow hover:text-white active:scale-95 transition-all cursor-pointer"
-                title={lang === 'ar' ? 'تفاعلات وإيموجي' : 'Emotes'}
-              >
-                😄
-              </button>
+                  {/* Smileys / Emotes Picker Button 😄 */}
+                  <button
+                    type="button"
+                    onClick={() => setShowEmotesBar(prev => !prev)}
+                    className="w-9 h-9 rounded-full bg-black/45 border border-white/20 text-slate-200 flex items-center justify-center text-lg shadow hover:text-white active:scale-95 transition-transform cursor-pointer"
+                    title={lang === 'ar' ? 'تفاعلات وإيموجي' : 'Emotes'}
+                  >
+                    😄
+                  </button>
 
-              {/* Quick Chat Input / Modal Trigger 💬 */}
-              <button
-                type="button"
-                onClick={() => setShowQuickChat(true)}
-                className="flex-1 h-9 px-3 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-400 hover:text-white text-xs flex items-center justify-between shadow active:scale-98 transition-all cursor-pointer"
-              >
-                <span>{lang === 'ar' ? 'دردشة سريعة...' : 'Quick Chat...'}</span>
-                <span>💬</span>
-              </button>
+                  {/* Quick Chat Button 💬 */}
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickChat(true)}
+                    className="h-9 px-3 rounded-full bg-black/45 border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition-transform cursor-pointer"
+                    title={lang === 'ar' ? 'دردشة سريعة' : 'Quick Chat'}
+                  >
+                    <span>💬</span>
+                    <span className="hidden sm:inline">{lang === 'ar' ? 'دردشة' : 'Chat'}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
