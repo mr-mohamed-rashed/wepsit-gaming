@@ -798,9 +798,11 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
 
   return (
     <div
-      className="min-h-screen text-slate-100 pb-12 bg-cover bg-center bg-fixed bg-no-repeat relative"
-      style={{ backgroundImage: 'url(/assets/cosmic-bg.png)' }}
+      className="min-h-screen text-slate-100 pb-12 bg-cover bg-center bg-no-repeat relative"
+      style={{ backgroundImage: showGameModal ? 'none' : 'url(/assets/cosmic-bg.png)' }}
     >
+      {!showGameModal && (
+        <>
       {/* Cyber-Neon Header */}
       <header className="border-b border-indigo-500/20 bg-[#090c15]/60 backdrop-blur-xl sticky top-0 z-30 shadow-[0_4px_30px_rgba(99,102,241,0.1)]">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -1354,6 +1356,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* --- CHOOSE GAME SESSION MODAL --- */}

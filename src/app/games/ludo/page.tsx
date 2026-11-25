@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Token, PlayerColor, getAbsolutePosition, SAFE_CELLS, START_INDICES } from './ludoUtils';
 
@@ -256,15 +256,20 @@ function MythicSplashScreenIntro({ onComplete, lang, isMuted }: CinematicIntroPr
   const [isFadingOut, setIsFadingOut] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
 
-  // Web Audio procedural sound synthesizer (100% lightweight & offline)
+  const splashAudioCtxRef = useRef<AudioContext | null>(null);
+
+  // Web Audio procedural sound synthesizer (100% lightweight & offline, singleton context)
   const playSoundEffect = (type: 'portal' | 'underwater' | 'pharaoh' | 'space' | 'finale') => {
     if (isMuted || typeof window === 'undefined') return;
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      if (!splashAudioCtxRef.current || splashAudioCtxRef.current.state === 'closed') {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        splashAudioCtxRef.current = new AudioCtx();
+      }
+      const ctx = splashAudioCtxRef.current;
       if (ctx.state === 'suspended') {
-        ctx.resume();
+        ctx.resume().catch(() => {});
       }
       const now = ctx.currentTime;
 
@@ -1738,12 +1743,20 @@ function LudoApp() {
     }
   }, []);
 
-  // Sound Synthesizers (Web Audio API)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // Sound Synthesizers (Web Audio API - reused singleton AudioContext for zero stutter)
   const getAudioContext = () => {
     if (isMuted || typeof window === 'undefined') return null;
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return null;
-    return new AudioCtx();
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return null;
+      audioCtxRef.current = new AudioCtx();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
   };
 
   const playGiftSound = (soundType: 'splat' | 'slap' | 'boom' | 'chime' | 'funny') => {
@@ -2449,9 +2462,10 @@ function LudoApp() {
     return () => clearTimeout(timeout);
   }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues]);
 
-  const ThemedLudoToken = ({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) => {
+  const SpaceToken = useMemo(() => {
     const theme = selectedBoardSkin || 'classic';
-    const tokenSizeClass = isAtHome ? 'w-[86%] h-[88%] translate-y-0' : 'w-[100%] h-[106%] translate-y-0';
+    return memo(function MemoizedLudoToken({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) {
+      const tokenSizeClass = isAtHome ? 'w-[86%] h-[88%] translate-y-0' : 'w-[100%] h-[106%] translate-y-0';
 
     // 1. CLASSIC THEME (Traditional 3D Royal Ludo Pawn - Identical to User's Reference Photo)
     if (theme === 'classic') {
@@ -2888,11 +2902,11 @@ function LudoApp() {
         </svg>
       </div>
     );
-  };
+    });
+  }, [selectedBoardSkin]);
 
-    const SpaceToken = ThemedLudoToken;
-
-  const renderBoard = () => {
+  // Memoized 136 Static Track Cells (never recomputed on token hops, dice rolls, or chat updates!)
+  const staticTrackCells = useMemo(() => {
     const isClassic = selectedBoardSkin === 'classic';
     const isIllustrated = selectedBoardSkin === 'underwater' || selectedBoardSkin === 'space' || selectedBoardSkin === 'ancient';
     const cells = [];
@@ -2979,20 +2993,16 @@ function LudoApp() {
         cells.push(
           <div key={`${r}-${c}`} style={{ gridRow: r + 1, gridColumn: c + 1 }} className={`w-full h-full ${cellStyle} relative flex items-center justify-center p-0.5`}>
             {cellIndicator}
-
-            {/* Footprint trail */}
-            {footprints.filter(f => f.r === r && f.c === c).map(f => (
-              <div key={f.key} className={`absolute w-[40%] h-[40%] rounded-full opacity-35 pointer-events-none ${f.color === 'red' ? 'bg-rose-500' :
-                f.color === 'green' ? 'bg-emerald-500' :
-                  f.color === 'blue' ? 'bg-cyan-500' :
-                    'bg-amber-500'
-                }`} />
-            ))}
           </div>
         );
       }
     }
 
+    return cells;
+  }, [selectedBoardSkin]);
+
+  const renderBoard = () => {
+    const isClassic = selectedBoardSkin === 'classic';
     return (
       <>
         {/* 4 Inside-The-Color Corner Bases (Yalla Ludo Style) */}
@@ -3001,7 +3011,7 @@ function LudoApp() {
         {renderCornerBase('red')}
         {renderCornerBase('blue')}
 
-        {cells}
+        {staticTrackCells}
 
         {/* Center Home: 4 Distinct Color Quadrants (بيت القطع المنتهية) */}
         <div
@@ -3101,7 +3111,26 @@ function LudoApp() {
       grouped[key].tokens.push(t);
     });
 
-    return Object.entries(grouped).map(([key, cell]) => {
+    const footprintDots = footprints.map(f => (
+      <div
+        key={f.key}
+        style={{ gridRow: f.r + 1, gridColumn: f.c + 1 }}
+        className="w-full h-full flex items-center justify-center pointer-events-none z-20"
+      >
+        <div
+          className={`w-[38%] h-[38%] rounded-full opacity-35 ${
+            f.color === 'red' ? 'bg-rose-500' :
+            f.color === 'green' ? 'bg-emerald-500' :
+            f.color === 'blue' ? 'bg-cyan-500' :
+            'bg-amber-500'
+          }`}
+        />
+      </div>
+    ));
+
+    return [
+      ...footprintDots,
+      ...Object.entries(grouped).map(([key, cell]) => {
       const count = cell.tokens.length;
       const hasSelectable = cell.tokens.some(
         (token) =>
@@ -3151,7 +3180,8 @@ function LudoApp() {
           </div>
         </div>
       );
-    });
+    }),
+    ];
   };
 
 
@@ -3341,76 +3371,117 @@ function LudoApp() {
           }`}
         />
 
-        {/* 3D CUBE (32px x 32px with 16px translateZ) */}
-        <div
-          className={`w-[32px] h-[32px] relative transition-transform duration-500 ease-out ${
-            isRolling ? 'animate-dice-3d-roll' : ''
-          }`}
-          style={{
-            transformStyle: 'preserve-3d',
-            transform: isRolling ? undefined : restTransform,
-          }}
-        >
-          {/* FACE 1 (Front: 1 Large Red Sunken Pip) */}
+        {/* DIE VISUAL: Full 6-face 3D spinning cube ONLY when rolling; crisp lightweight 2.5D bevel die at rest */}
+        {isRolling ? (
           <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] flex items-center justify-center"
-            style={{ transform: 'rotateY(0deg) translateZ(16px)' }}
+            className="w-[32px] h-[32px] relative animate-dice-3d-roll"
+            style={{ transformStyle: 'preserve-3d' }}
           >
-            <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-rose-500 via-rose-600 to-rose-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0.5px_1px_rgba(255,255,255,0.7)]" />
+            {/* FACE 1 (Front) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 flex items-center justify-center"
+              style={{ transform: 'rotateY(0deg) translateZ(16px)' }}
+            >
+              <div className="w-3.5 h-3.5 rounded-full bg-rose-600" />
+            </div>
+            {/* FACE 6 (Back) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-slate-100 border border-slate-300 p-1 grid grid-cols-2 grid-rows-3 justify-items-center items-center"
+              style={{ transform: 'rotateY(180deg) translateZ(16px)' }}
+            >
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+              ))}
+            </div>
+            {/* FACE 2 (Top) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-white border border-slate-300 p-1.5 flex flex-col justify-between"
+              style={{ transform: 'rotateX(90deg) translateZ(16px)' }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 self-start" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 self-end" />
+            </div>
+            {/* FACE 5 (Bottom) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-slate-200 border border-slate-300 p-1 grid grid-cols-3 grid-rows-3 justify-items-center items-center"
+              style={{ transform: 'rotateX(-90deg) translateZ(16px)' }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-2 row-start-2" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+            </div>
+            {/* FACE 3 (Right) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-slate-50 border border-slate-300 p-1.5 flex flex-col justify-between"
+              style={{ transform: 'rotateY(90deg) translateZ(16px)' }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 self-start" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 self-center" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900 self-end" />
+            </div>
+            {/* FACE 4 (Left) */}
+            <div
+              className="absolute inset-0 rounded-[6px] bg-slate-200 border border-slate-300 p-1.5 grid grid-cols-2 grid-rows-2 justify-items-center items-center"
+              style={{ transform: 'rotateY(-90deg) translateZ(16px)' }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+            </div>
           </div>
-
-          {/* FACE 6 (Back: 6 Dark Pips) */}
+        ) : (
           <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1 grid grid-cols-2 grid-rows-3 justify-items-center items-center"
-            style={{ transform: 'rotateY(180deg) translateZ(16px)', filter: 'brightness(0.92)' }}
+            className="w-[32px] h-[32px] rounded-[7px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300 border-b-[3px] border-r-[3px] border-b-slate-400/90 border-r-slate-300/90 shadow-md p-1 grid grid-cols-3 grid-rows-3 justify-items-center items-center"
+            style={{ transform: 'rotateX(-8deg) rotateY(10deg)' }}
           >
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
-            ))}
+            {val === 1 && (
+              <div className="w-3.5 h-3.5 rounded-full bg-rose-600 col-start-2 row-start-2 shadow-inner" />
+            )}
+            {val === 2 && (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+              </>
+            )}
+            {val === 3 && (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-2 row-start-2" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+              </>
+            )}
+            {val === 4 && (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+              </>
+            )}
+            {val === 5 && (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-2 row-start-2" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+              </>
+            )}
+            {val === 6 && (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-2" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-2" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
+              </>
+            )}
           </div>
-
-          {/* FACE 2 (Top: 2 Diagonal Pips) */}
-          <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1.5 flex flex-col justify-between"
-            style={{ transform: 'rotateX(90deg) translateZ(16px)', filter: 'brightness(1.05)' }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-start" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-end" />
-          </div>
-
-          {/* FACE 5 (Bottom: 5 Pips) */}
-          <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 border border-slate-300/90 shadow-inner p-1 grid grid-cols-3 grid-rows-3 justify-items-center items-center"
-            style={{ transform: 'rotateX(-90deg) translateZ(16px)', filter: 'brightness(0.85)' }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-1" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-1" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-2 row-start-2" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-1 row-start-3" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 col-start-3 row-start-3" />
-          </div>
-
-          {/* FACE 3 (Right: 3 Diagonal Pips) */}
-          <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-white via-slate-50 to-slate-200 border border-slate-300/90 shadow-[inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-1px_1.5px_rgba(0,0,0,0.15)] p-1.5 flex flex-col justify-between"
-            style={{ transform: 'rotateY(90deg) translateZ(16px)', filter: 'brightness(0.92)' }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-start" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-center" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)] self-end" />
-          </div>
-
-          {/* FACE 4 (Left: 4 Corner Pips) */}
-          <div
-            className="absolute inset-0 rounded-[6px] bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 border border-slate-300/90 shadow-inner p-1.5 grid grid-cols-2 grid-rows-2 justify-items-center items-center"
-            style={{ transform: 'rotateY(-90deg) translateZ(16px)', filter: 'brightness(0.88)' }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-900 shadow-[inset_0_1px_1.5px_rgba(0,0,0,0.8),0_0.5px_0.5px_rgba(255,255,255,0.7)]" />
-          </div>
-        </div>
+        )}
 
         {/* Turn Active Aura Glow */}
         {isTurn && (
@@ -3445,7 +3516,7 @@ function LudoApp() {
               isValidMove ? 'cursor-pointer animate-bounce ring-2 ring-amber-300 z-30' : ''
             }`}
           >
-            <ThemedLudoToken color={baseColor} isSelectable={isValidMove} isAtHome={true} />
+            <SpaceToken color={baseColor} isSelectable={isValidMove} isAtHome={true} />
           </div>
         ) : !isTokenActive ? (
           <span className="text-[8px] opacity-20">🔒</span>
@@ -4514,20 +4585,11 @@ function LudoApp() {
           </div>
         )
       ) : (
-        /* Active Game Board - Single-Screen Mobile Fit (Zero X/Y Scroll, Exact 1:1 Square Board) */
+        /* Active Game Board - Lightweight Felt Background & 1:1 Mobile Fit */
         <div
-          className="h-[100dvh] w-full max-w-[100vw] flex flex-col justify-between items-center relative overflow-hidden py-1.5 px-1.5 sm:p-2"
+          className="h-[100dvh] w-full max-w-[100vw] flex flex-col justify-between items-center relative overflow-hidden py-1.5 px-1.5 sm:p-2 bg-[#0a3526]"
           style={{
-            backgroundColor: '#0a3526',
-            backgroundImage: `
-              linear-gradient(135deg, rgba(255,255,255,0.03) 25%, transparent 25%),
-              linear-gradient(225deg, rgba(255,255,255,0.03) 25%, transparent 25%),
-              linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%),
-              linear-gradient(315deg, rgba(255,255,255,0.03) 25%, transparent 25%)
-            `,
-            backgroundPosition: '20px 0, 20px 0, 0 0, 0 0',
-            backgroundSize: '40px 40px',
-            backgroundRepeat: 'repeat'
+            backgroundImage: 'radial-gradient(circle at 50% 35%, #0e4a35 0%, #07261b 100%)',
           }}
         >
           {/* 1. CLEAN 3-ROW TOP BAR (Matching Reference Screenshot) */}
