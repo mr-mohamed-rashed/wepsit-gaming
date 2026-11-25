@@ -3641,7 +3641,7 @@ function LudoApp() {
   };
 
   return (
-    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`${gameStarted ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'} bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none overscroll-y-none touch-manipulation`}>
+    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`${gameStarted ? 'h-[100dvh] w-full max-w-[100vw] overflow-hidden' : 'min-h-[100dvh] w-full overflow-x-hidden'} bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none touch-manipulation`}>
 
       {/* Persistent HTML5 Audio for Local Music */}
       <audio ref={audioRef} loop className="hidden" />
@@ -4436,9 +4436,9 @@ function LudoApp() {
           </div>
         )
       ) : (
-        /* Active Game Board - Single-Screen Mobile Fit (Zero Scroll) */
+        /* Active Game Board - Single-Screen Mobile Fit (Zero X/Y Scroll, Exact 1:1 Square Board) */
         <div
-          className="h-full w-full flex flex-col justify-between items-center relative overflow-hidden py-1 px-1.5 sm:p-2"
+          className="h-[100dvh] w-full max-w-[100vw] flex flex-col justify-between items-center relative overflow-hidden py-1.5 px-1.5 sm:p-2"
           style={{
             backgroundColor: '#0a3526',
             backgroundImage: `
@@ -4453,17 +4453,20 @@ function LudoApp() {
           }}
         >
           {/* 1. CLEAN 3-ROW TOP BAR (Matching Reference Screenshot) */}
-          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0">
+          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0 overflow-hidden">
             {/* Row 1: Power + Trophy on left | User Profile Chip on right */}
             <div dir="ltr" className="w-full flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={handleExitGame}
-                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-rose-950/80 border border-white/20 flex items-center justify-center text-sm text-white transition-colors cursor-pointer active:scale-90"
+                  className="w-8 h-8 rounded-full bg-black/35 hover:bg-rose-950/80 border border-white/20 flex items-center justify-center text-white transition-colors cursor-pointer active:scale-90"
                   title={lang === 'ar' ? 'خروج من اللعبة' : 'Exit Game'}
                 >
-                  ⏻
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2v10" />
+                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                  </svg>
                 </button>
                 <button
                   type="button"
@@ -4657,10 +4660,14 @@ function LudoApp() {
             </div>
           </div>
 
-          {/* 2. CENTER LUDO BOARD: Auto-scales to fit 100% inside 100dvh with ZERO scroll */}
+          {/* 2. CENTER LUDO BOARD: Explicit equal width & height with valid CSS calc() spaces so it is ALWAYS 1:1 square */}
           <div
             dir="ltr"
-            className="w-[min(96vw,440px,calc(100dvh-245px))] aspect-square rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10"
+            className="rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10 mx-auto"
+            style={{
+              width: 'min(94vw, 430px, calc(100dvh - 230px))',
+              height: 'min(94vw, 430px, calc(100dvh - 230px))',
+            }}
           >
             {/* Bottom Layer: Unified 15x15 Board Grid with clean gaps separating all squares & bases */}
             <div

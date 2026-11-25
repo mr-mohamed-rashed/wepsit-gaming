@@ -1409,7 +1409,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
 
       {/* Game Modal Popup Overlay */}
       {showGameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md no-pull-refresh overscroll-none select-none">
+        <div className="fixed inset-0 z-50 w-screen h-[100dvh] overflow-hidden flex items-center justify-center bg-slate-950/95 backdrop-blur-md no-pull-refresh overscroll-none select-none">
           <div className="w-full h-full flex flex-col overflow-hidden relative shadow-2xl no-pull-refresh overscroll-none">
 
             {/* Dynamic Blurred Game Card Background */}
@@ -1440,7 +1440,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             )}
 
             {/* Modal body */}
-            <div className="flex-1 flex flex-col md:flex-row p-0.5 sm:p-2 gap-2 sm:gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none">
+            <div className={`flex-1 flex flex-col md:flex-row ${activeGame === 'ludo' ? 'p-0' : 'p-0.5 sm:p-2'} gap-2 sm:gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none`}>
               <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full no-pull-refresh overscroll-none">
                 <iframe
                   src={
