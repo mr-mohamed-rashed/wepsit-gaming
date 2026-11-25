@@ -1409,19 +1409,23 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
 
       {/* Game Modal Popup Overlay */}
       {showGameModal && (
-        <div className="fixed inset-0 z-50 w-screen h-[100dvh] overflow-hidden flex items-center justify-center bg-slate-950/95 backdrop-blur-md no-pull-refresh overscroll-none select-none">
+        <div className={`fixed inset-0 z-50 w-screen h-[100dvh] overflow-hidden flex items-center justify-center ${activeGame === 'ludo' ? 'bg-[#0a3526]' : 'bg-slate-950/95 backdrop-blur-md'} no-pull-refresh overscroll-none select-none`}>
           <div className="w-full h-full flex flex-col overflow-hidden relative shadow-2xl no-pull-refresh overscroll-none">
 
-            {/* Dynamic Blurred Game Card Background */}
-            <div
-              className="absolute inset-0 bg-cover -z-20 pointer-events-none"
-              style={{
-                backgroundImage: `url('${activeCard}')`,
-                backgroundPosition: 'center top',
-                filter: 'brightness(0.35) saturate(1.1)'
-              }}
-            />
-            <div className="absolute inset-0 bg-black/40 -z-10 pointer-events-none" />
+            {/* Dynamic Blurred Game Card Background (Skipped for Ludo to prevent mobile GPU blur lag) */}
+            {activeGame !== 'ludo' && (
+              <>
+                <div
+                  className="absolute inset-0 bg-cover -z-20 pointer-events-none"
+                  style={{
+                    backgroundImage: `url('${activeCard}')`,
+                    backgroundPosition: 'center top',
+                    filter: 'brightness(0.35) saturate(1.1)'
+                  }}
+                />
+                <div className="absolute inset-0 bg-black/40 -z-10 pointer-events-none" />
+              </>
+            )}
 
             {/* Modal header - Hidden for Ludo since Ludo has its own full top bar with Exit (⏻) */}
             {activeGame !== 'ludo' && (

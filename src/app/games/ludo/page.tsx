@@ -1957,9 +1957,9 @@ function LudoApp() {
     }
   }, []);
 
-  // 💾 Auto-save Active Match Session on state updates
+  // 💾 Auto-save Active Match Session on state updates (skip intermediate step animations)
   useEffect(() => {
-    if (!gameStarted || winner) {
+    if (!gameStarted || winner || isAnimating) {
       if (winner) {
         try { localStorage.removeItem('ludo_active_match_session'); } catch (e) {}
       }
@@ -1985,7 +1985,7 @@ function LudoApp() {
     } catch (e) {
       console.warn('Could not save ludo match session', e);
     }
-  }, [gameStarted, winner, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
+  }, [gameStarted, winner, isAnimating, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
 
   const getValidMoves = (playerColor: PlayerColor, diceVal: number) => {
     const validTokens: Token[] = [];
@@ -2032,6 +2032,7 @@ function LudoApp() {
   };
 
   const finalizeTurnAfterMove = (token: Token, finalPos: number, diceVal: number) => {
+    setFootprints([]);
     let ateOpponent = false;
     let justFinished = false;
     let landedOnSafe = false;
@@ -2239,11 +2240,11 @@ function LudoApp() {
 
       const absPos = getAbsolutePosition(token.color, currentPos);
       if (absPos) {
-        setFootprints(prev => [...prev, { ...absPos, color: token.color, key: `${absPos.r}-${absPos.c}-${Date.now()}` }]);
+        setFootprints(prev => [...prev.slice(-1), { ...absPos, color: token.color, key: `${absPos.r}-${absPos.c}-${currentPos}` }]);
       }
 
       playStepSound();
-      setTimeout(performStep, 300);
+      setTimeout(performStep, 260);
     };
 
     performStep();
@@ -2256,16 +2257,7 @@ function LudoApp() {
     setRollingDicePlayer(turn);
     playDiceRollSound();
 
-    // Rapid face shuffling for natural 3D rolling appearance
-    const shuffleInterval = setInterval(() => {
-      setDiceValues(prev => ({
-        ...prev,
-        [turn]: Math.floor(Math.random() * 6) + 1,
-      }));
-    }, 60);
-
     setTimeout(() => {
-      clearInterval(shuffleInterval);
       let finalVal = Math.floor(Math.random() * 6) + 1;
 
       if (consecutiveSixes === 0) {
@@ -2395,7 +2387,7 @@ function LudoApp() {
 
   const ThemedLudoToken = ({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) => {
     const theme = selectedBoardSkin || 'classic';
-    const tokenSizeClass = isAtHome ? 'w-[76%] h-[80%] translate-y-0' : 'w-[84%] h-[88%] translate-y-0';
+    const tokenSizeClass = isAtHome ? 'w-[86%] h-[88%] translate-y-0' : 'w-[100%] h-[106%] translate-y-0';
 
     // 1. CLASSIC THEME (Traditional 3D Royal Ludo Pawn - Identical to User's Reference Photo)
     if (theme === 'classic') {
@@ -2538,8 +2530,8 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
-            isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#06b6d4]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
+          className={`relative ${tokenSizeClass} flex items-center justify-center select-none overflow-visible pointer-events-auto ${
+            isSelectable ? 'animate-bounce z-30 drop-shadow-[0_0_6px_rgba(250,204,21,0.9)]' : ''
           }`}
         >
           <svg className="w-full h-full overflow-visible" viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg">
@@ -2636,8 +2628,8 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
-            isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_#f59e0b]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
+          className={`relative ${tokenSizeClass} flex items-center justify-center select-none overflow-visible pointer-events-auto ${
+            isSelectable ? 'animate-bounce z-30 drop-shadow-[0_0_6px_#f59e0b]' : ''
           }`}
         >
           <svg className="w-full h-full overflow-visible" viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg">
@@ -2756,8 +2748,8 @@ function LudoApp() {
 
     return (
       <div
-        className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
-          isSelectable ? `animate-bounce z-30 filter drop-shadow-[0_0_14px_${cfg.neon}]` : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
+        className={`relative ${tokenSizeClass} flex items-center justify-center select-none overflow-visible pointer-events-auto ${
+          isSelectable ? 'animate-bounce z-30 drop-shadow-[0_0_6px_#22d3ee]' : ''
         }`}
       >
         <svg className="w-full h-full overflow-visible" viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg">
@@ -2926,10 +2918,10 @@ function LudoApp() {
 
             {/* Footprint trail */}
             {footprints.filter(f => f.r === r && f.c === c).map(f => (
-              <div key={f.key} className={`absolute w-[45%] h-[45%] rounded-full opacity-40 animate-ping ${f.color === 'red' ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' :
-                f.color === 'green' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' :
-                  f.color === 'blue' ? 'bg-cyan-500 shadow-[0_0_8px_#06b6d4]' :
-                    'bg-amber-500 shadow-[0_0_8px_#f59e0b]'
+              <div key={f.key} className={`absolute w-[40%] h-[40%] rounded-full opacity-35 pointer-events-none ${f.color === 'red' ? 'bg-rose-500' :
+                f.color === 'green' ? 'bg-emerald-500' :
+                  f.color === 'blue' ? 'bg-cyan-500' :
+                    'bg-amber-500'
                 }`} />
             ))}
           </div>
@@ -3058,7 +3050,7 @@ function LudoApp() {
         <div
           key={`tokens-${key}`}
           style={{ gridRow: cell.r + 1, gridColumn: cell.c + 1 }}
-          className={`relative w-full h-full flex items-center justify-center p-0.5 pointer-events-none ${
+          className={`relative w-full h-full flex items-center justify-center p-0 pointer-events-none ${
             hasSelectable ? 'z-40' : 'z-30'
           }`}
         >
@@ -3084,7 +3076,7 @@ function LudoApp() {
                   onClick={() => {
                     if (isValidMove) handleTokenClick(token);
                   }}
-                  className={`w-full h-full relative flex items-center justify-center pointer-events-auto transition-all duration-200 ${
+                  className={`w-full h-full relative flex items-center justify-center pointer-events-auto ${
                     isValidMove ? 'cursor-pointer z-40' : 'cursor-default'
                   }`}
                 >
@@ -3358,7 +3350,7 @@ function LudoApp() {
 
         {/* Turn Active Aura Glow */}
         {isTurn && (
-          <div className="absolute -inset-1 rounded-xl border-2 border-amber-400 shadow-[0_0_16px_rgba(251,191,36,0.85)] pointer-events-none animate-pulse" />
+          <div className="absolute -inset-1 rounded-xl border-2 border-amber-400 pointer-events-none" />
         )}
       </div>
     );
@@ -3406,16 +3398,24 @@ function LudoApp() {
     const isBot = playerConfig[baseColor] === 'bot';
 
     let gridStyle = { gridRow: '1 / 7', gridColumn: '1 / 7' };
-    if (baseColor === 'yellow') gridStyle = { gridRow: '1 / 7', gridColumn: '10 / 16' };
-    else if (baseColor === 'red') gridStyle = { gridRow: '10 / 16', gridColumn: '1 / 7' };
-    else if (baseColor === 'blue') gridStyle = { gridRow: '10 / 16', gridColumn: '10 / 16' };
+    let alignCornerClass = 'self-start justify-self-start';
+    if (baseColor === 'yellow') {
+      gridStyle = { gridRow: '1 / 7', gridColumn: '10 / 16' };
+      alignCornerClass = 'self-start justify-self-end';
+    } else if (baseColor === 'red') {
+      gridStyle = { gridRow: '10 / 16', gridColumn: '1 / 7' };
+      alignCornerClass = 'self-end justify-self-start';
+    } else if (baseColor === 'blue') {
+      gridStyle = { gridRow: '10 / 16', gridColumn: '10 / 16' };
+      alignCornerClass = 'self-end justify-self-end';
+    }
 
     const isSpace = selectedBoardSkin === 'space';
     const colorConfig = {
       green: {
-        bg: isSpace ? 'bg-emerald-950/40 backdrop-blur-[1px]' : 'bg-emerald-600',
-        border: isSpace ? 'border-emerald-400/80 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'border-emerald-500/90',
-        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        bg: isSpace ? 'bg-emerald-950/45' : 'bg-emerald-600',
+        border: isSpace ? 'border-emerald-400/80' : 'border-emerald-500/90',
+        glow: 'shadow-md',
         avatarBorder: 'border-emerald-300',
         defaultName: 'Ali Ali',
         botName: lang === 'ar' ? 'الأخضر (روبوت)' : 'Green (Bot)',
@@ -3423,9 +3423,9 @@ function LudoApp() {
         fallbackAvatar: '🟢',
       },
       yellow: {
-        bg: isSpace ? 'bg-amber-950/40 backdrop-blur-[1px]' : 'bg-amber-500',
-        border: isSpace ? 'border-amber-400/80 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'border-amber-400/90',
-        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.35),0_4px_12px_rgba(0,0,0,0.35)]',
+        bg: isSpace ? 'bg-amber-950/45' : 'bg-amber-500',
+        border: isSpace ? 'border-amber-400/80' : 'border-amber-400/90',
+        glow: 'shadow-md',
         avatarBorder: 'border-amber-200',
         defaultName: 'محمود',
         botName: lang === 'ar' ? 'الأصفر (روبوت)' : 'Yellow (Bot)',
@@ -3433,9 +3433,9 @@ function LudoApp() {
         fallbackAvatar: '🟡',
       },
       red: {
-        bg: isSpace ? 'bg-rose-950/40 backdrop-blur-[1px]' : 'bg-rose-600',
-        border: isSpace ? 'border-rose-400/80 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'border-rose-400/90',
-        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        bg: isSpace ? 'bg-rose-950/45' : 'bg-rose-600',
+        border: isSpace ? 'border-rose-400/80' : 'border-rose-400/90',
+        glow: 'shadow-md',
         avatarBorder: 'border-rose-300',
         defaultName: 'الساحر',
         botName: lang === 'ar' ? 'الأحمر (روبوت)' : 'Red (Bot)',
@@ -3443,9 +3443,9 @@ function LudoApp() {
         fallbackAvatar: '🔴',
       },
       blue: {
-        bg: isSpace ? 'bg-blue-950/40 backdrop-blur-[1px]' : 'bg-blue-600',
-        border: isSpace ? 'border-blue-400/80 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-blue-400/90',
-        glow: 'shadow-[inset_0_3px_10px_rgba(255,255,255,0.3),0_4px_12px_rgba(0,0,0,0.35)]',
+        bg: isSpace ? 'bg-blue-950/45' : 'bg-blue-600',
+        border: isSpace ? 'border-blue-400/80' : 'border-blue-400/90',
+        glow: 'shadow-md',
         avatarBorder: 'border-cyan-300',
         defaultName: userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)'),
         botName: lang === 'ar' ? 'الأزرق (روبوت)' : 'Blue (Bot)',
@@ -3467,8 +3467,8 @@ function LudoApp() {
       <div
         key={`corner-${baseColor}`}
         style={gridStyle}
-        className={`w-full h-full min-w-0 min-h-0 box-border relative rounded-xl sm:rounded-2xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1.5 sm:p-2 flex flex-col justify-between overflow-hidden select-none transition-all duration-300 ${
-          isTurn ? 'ring-2 ring-inset ring-amber-300 shadow-[inset_0_0_16px_rgba(251,191,36,0.55)] z-20' : 'z-10'
+        className={`w-[88%] h-[88%] ${alignCornerClass} min-w-0 min-h-0 box-border relative rounded-xl sm:rounded-2xl ${colorConfig.bg} border-2 ${colorConfig.border} ${colorConfig.glow} p-1 sm:p-1.5 flex flex-col justify-between overflow-hidden select-none ${
+          isTurn ? 'ring-2 ring-inset ring-amber-300 z-20' : 'z-10'
         }`}
       >
         {/* Active Impact (Gift animation) */}
@@ -4660,18 +4660,18 @@ function LudoApp() {
             </div>
           </div>
 
-          {/* 2. CENTER LUDO BOARD: Explicit equal width & height with valid CSS calc() spaces so it is ALWAYS 1:1 square */}
+          {/* 2. CENTER LUDO BOARD: Maximized 1:1 Square Board for Bigger Track Cells & Pawns */}
           <div
             dir="ltr"
-            className="rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10 mx-auto"
+            className="rounded-2xl shadow-lg border-2 border-emerald-800/80 relative shrink-0 z-10 mx-auto"
             style={{
-              width: 'min(94vw, 430px, calc(100dvh - 230px))',
-              height: 'min(94vw, 430px, calc(100dvh - 230px))',
+              width: 'min(98vw, 470px, calc(100dvh - 196px))',
+              height: 'min(98vw, 470px, calc(100dvh - 196px))',
             }}
           >
-            {/* Bottom Layer: Unified 15x15 Board Grid with clean gaps separating all squares & bases */}
+            {/* Bottom Layer: Unified 15x15 Board Grid with tight gaps so track squares stay huge */}
             <div
-              className={`w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 rounded-[14px] overflow-hidden ${
+              className={`w-full h-full grid gap-[1px] sm:gap-[2px] p-[2px] rounded-[14px] overflow-hidden ${
                 selectedBoardSkin === 'classic' ? 'bg-slate-200' : 'bg-slate-950'
               }`}
               style={{
@@ -4692,7 +4692,7 @@ function LudoApp() {
 
             {/* Top Layer: Active Pawns organized squarely in their 15x15 cells above all board layers */}
             <div
-              className="absolute inset-0 w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 pointer-events-none z-30"
+              className="absolute inset-0 w-full h-full grid gap-[1px] sm:gap-[2px] p-[2px] pointer-events-none z-30"
               style={{
                 gridTemplateColumns: 'repeat(15, minmax(0, 1fr))',
                 gridTemplateRows: 'repeat(15, minmax(0, 1fr))',
@@ -4703,7 +4703,7 @@ function LudoApp() {
           </div>
 
           {/* 3. CLEAN OPEN CHAT TICKER & BOTTOM TOOLBAR (Matching Reference Layout) */}
-          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0">
+          <div className="w-full max-w-lg flex flex-col gap-0.5 z-20 shrink-0">
             {/* Chat Tabs & Translucent Feed */}
             <div className="w-full px-1.5 flex flex-col gap-0.5">
               {/* Category Pills: جميع, هدية, خبر */}
@@ -4734,10 +4734,10 @@ function LudoApp() {
               </div>
 
               {/* Ticker Feed Messages */}
-              <div className="h-7 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
+              <div className="h-5 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight">
                 {chatMessages
                   .filter(m => chatTab === 'all' || m.type === chatTab)
-                  .slice(0, 2)
+                  .slice(0, 1)
                   .map(msg => (
                     <div key={msg.id} className="flex items-center gap-1.5 text-slate-100 truncate">
                       {msg.user && (
@@ -4752,7 +4752,7 @@ function LudoApp() {
             </div>
 
             {/* 4. BOTTOM ACTION TOOLBAR (Gift, Menu, Mail, Mic, Smileys, Chat Input - Matching Image 1 & 3) */}
-            <div className="w-full flex items-center justify-between gap-1.5 px-1 py-1 relative">
+            <div className="w-full flex items-center justify-between gap-1.5 px-1 py-0.5 relative">
               {/* EMOJI & STICKERS POPUP DRAWER (أعلى زر الإيموجي مباشرةً مع ملصقاتنا الخاصة) */}
               {showEmotesBar && (
                 <div
