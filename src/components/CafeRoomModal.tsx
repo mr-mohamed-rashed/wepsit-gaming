@@ -781,10 +781,15 @@ export default function CafeRoomModal({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {meta.activeTables.map((room) => {
                     const isFull = room.currentPlayers >= room.playerCount;
+                    const isInGame = room.status === 'in_game';
                     return (
                       <div
                         key={room.id}
-                        className="bg-slate-950/80 border border-slate-800/80 hover:border-amber-500/50 rounded-2xl p-3.5 space-y-3 transition-all shadow-md group relative overflow-hidden"
+                        className={`rounded-2xl p-3.5 space-y-3 transition-all shadow-md group relative overflow-hidden border ${
+                          isInGame
+                            ? 'bg-purple-950/25 border-purple-500/50 hover:border-purple-400/80'
+                            : 'bg-slate-950/80 border-amber-500/35 hover:border-amber-400/70'
+                        }`}
                       >
                         {/* Header: Host & Status */}
                         <div className="flex items-center justify-between">
@@ -792,7 +797,9 @@ export default function CafeRoomModal({
                             <img
                               src={room.hostAvatar}
                               alt={room.hostName}
-                              className="w-8 h-8 rounded-full border border-amber-400/40 bg-slate-900 object-cover"
+                              className={`w-8 h-8 rounded-full border bg-slate-900 object-cover ${
+                                isInGame ? 'border-purple-400/50' : 'border-amber-400/50'
+                              }`}
                             />
                             <div>
                               <div className="text-xs font-bold text-white flex items-center gap-1">
@@ -807,14 +814,14 @@ export default function CafeRoomModal({
 
                           <span
                             className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-                              room.status === 'waiting'
-                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                              isInGame
+                                ? 'bg-purple-500/15 border-purple-400/40 text-purple-300'
+                                : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                             }`}
                           >
-                            {room.status === 'waiting'
-                              ? (lang === 'ar' ? 'في انتظار لاعبين' : 'Waiting')
-                              : (lang === 'ar' ? 'المباراة جارية' : 'In Game')}
+                            {isInGame
+                              ? (lang === 'ar' ? 'المباراة جارية' : 'In Game')
+                              : (lang === 'ar' ? 'في انتظار لاعبين' : 'Waiting')}
                           </span>
                         </div>
 
@@ -832,26 +839,26 @@ export default function CafeRoomModal({
                           </div>
                           <div>
                             <div className="text-slate-400 text-[9px]">{lang === 'ar' ? 'طاولة اللعب' : 'Table Seats'}</div>
-                            <div className={`font-bold ${isFull ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div className={`font-bold ${isInGame ? 'text-purple-300' : isFull ? 'text-amber-400' : 'text-emerald-400'}`}>
                               {room.currentPlayers}/{room.playerCount}
                             </div>
                           </div>
                         </div>
 
-                        {/* Single Unified Action Button: Enter Room (دخول الغرفة بدون إجبار) */}
+                        {/* Single Unified Action Button: Purple when In Game, Gold when Waiting */}
                         <div className="pt-1">
                           <button
                             type="button"
                             onClick={() => handleJoinActiveRoom(room)}
                             className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 ${
-                              room.status === 'in_game' || isFull
+                              isInGame || isFull
                                 ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
                                 : 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
                             }`}
                           >
-                            <span>{room.status === 'in_game' || isFull ? '🎙️' : '🚪'}</span>
+                            <span>{isInGame || isFull ? '🎙️' : '🚪'}</span>
                             <span>
-                              {room.status === 'in_game'
+                              {isInGame
                                 ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
                                 : isFull
                                 ? (lang === 'ar' ? 'دخول الغرفة (طاولة اللعب ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')

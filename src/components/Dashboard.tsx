@@ -1343,7 +1343,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             </div>
 
             {/* Modal body */}
-            <div className="flex-1 flex flex-col md:flex-row p-2 gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none">
+            <div className="flex-1 flex flex-col md:flex-row p-0.5 sm:p-2 gap-2 sm:gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none">
               <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full no-pull-refresh overscroll-none">
                 <iframe
                   src={

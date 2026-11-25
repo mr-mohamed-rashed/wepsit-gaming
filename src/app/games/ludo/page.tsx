@@ -2355,50 +2355,34 @@ function LudoApp() {
     }
   }, [turn, rollingDicePlayer, gameStarted, playerConfig, gameState, diceValues, winner]);
 
-  // ⏱️ Fast Turn Countdown Timer (10 seconds total, auto-plays on expiry)
+  // ⏱️ Fast Turn Countdown Timer (10 seconds total, CSS-driven 60fps ring + single timeout for zero React re-renders)
   const TURN_TIMEOUT_SECONDS = 10;
-  const [turnTimeLeft, setTurnTimeLeft] = useState<number>(TURN_TIMEOUT_SECONDS);
-  const turnStartTimeRef = useRef<number>(Date.now());
-  const turnProgress = Math.max(0, Math.min(1, turnTimeLeft / TURN_TIMEOUT_SECONDS));
-
-  // Reset timer on turn or game state transition
-  useEffect(() => {
-    turnStartTimeRef.current = Date.now();
-    setTurnTimeLeft(TURN_TIMEOUT_SECONDS);
-  }, [turn, gameState, gameStarted]);
 
   useEffect(() => {
     if (!gameStarted || winner || isAnimating) return;
 
-    const interval = setInterval(() => {
-      const elapsed = (Date.now() - turnStartTimeRef.current) / 1000;
-      const remaining = Math.max(0, TURN_TIMEOUT_SECONDS - elapsed);
-      setTurnTimeLeft(remaining);
-
-      if (remaining <= 0) {
-        clearInterval(interval);
-        // Auto-roll if waiting for roll
-        if (gameState === 'waiting_roll' && rollingDicePlayer === null) {
-          rollDice();
-        } else if (gameState === 'waiting_move') {
-          // Auto-move best token
-          const validMoves = getValidMoves(turn, diceValues[turn]);
-          if (validMoves.length > 0) {
-            const moveOut = validMoves.find(t => t.position === -1);
-            handleTokenClick(moveOut || validMoves[0]);
-          } else {
-            // Pass turn if no moves
-            const nextPlayer = getNextActivePlayer(turn);
-            setTurn(nextPlayer);
-            setConsecutiveSixes(0);
-            setExtraRolls(0);
-            setGameState('waiting_roll');
-          }
+    const timeout = setTimeout(() => {
+      // Auto-roll if waiting for roll
+      if (gameState === 'waiting_roll' && rollingDicePlayer === null) {
+        rollDice();
+      } else if (gameState === 'waiting_move') {
+        // Auto-move best token
+        const validMoves = getValidMoves(turn, diceValues[turn]);
+        if (validMoves.length > 0) {
+          const moveOut = validMoves.find(t => t.position === -1);
+          handleTokenClick(moveOut || validMoves[0]);
+        } else {
+          // Pass turn if no moves
+          const nextPlayer = getNextActivePlayer(turn);
+          setTurn(nextPlayer);
+          setConsecutiveSixes(0);
+          setExtraRolls(0);
+          setGameState('waiting_roll');
         }
       }
-    }, 100);
+    }, TURN_TIMEOUT_SECONDS * 1000);
 
-    return () => clearInterval(interval);
+    return () => clearTimeout(timeout);
   }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues]);
 
   const ThemedLudoToken = ({ color, isSelectable = false, isAtHome = false }: { color: string; isSelectable?: boolean; isAtHome?: boolean }) => {
@@ -2438,8 +2422,8 @@ function LudoApp() {
 
       return (
         <div
-          className={`relative ${tokenSizeClass} flex items-center justify-center transition-all duration-300 select-none overflow-visible pointer-events-auto ${
-            isSelectable ? 'animate-bounce z-30 filter drop-shadow-[0_0_12px_rgba(250,204,21,0.95)]' : 'filter drop-shadow-[0_5px_7px_rgba(0,0,0,0.65)]'
+          className={`relative ${tokenSizeClass} flex items-center justify-center transition-transform duration-200 select-none overflow-visible pointer-events-auto ${
+            isSelectable ? 'animate-bounce z-30 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]' : ''
           }`}
         >
           <svg className="w-full h-full overflow-visible" viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg">
@@ -2510,12 +2494,12 @@ function LudoApp() {
             </g>
 
             {/* Sculpted Torus Collar Ring */}
-            <ellipse cx="50" cy="53" rx="16" ry="5" fill={`url(#${uid}-collar)`} filter="drop-shadow(0 2px 3px rgba(0,0,0,0.4))" />
+            <ellipse cx="50" cy="53" rx="16" ry="5" fill={`url(#${uid}-collar)`} />
             <ellipse cx="50" cy="51.5" rx="14" ry="3.5" fill={`url(#${uid}-head)`} opacity="0.65" />
             <path d="M 36 52 C 38 50, 48 49, 52 49 C 48 51, 38 52, 36 52 Z" fill="white" opacity="0.75" />
 
             {/* Large 3D Spherical Head (مطابق تماماً لصورة المستخدم) */}
-            <circle cx="50" cy="28" r="23" fill={`url(#${uid}-head)`} filter="drop-shadow(0 4px 6px rgba(0,0,0,0.5))" />
+            <circle cx="50" cy="28" r="23" fill={`url(#${uid}-head)`} />
 
             {/* Specular Highlights on Sphere */}
             <ellipse cx="42" cy="19" rx="8.5" ry="5.5" transform="rotate(-32 42 19)" fill="white" opacity="0.88" />
@@ -3525,7 +3509,7 @@ function LudoApp() {
                   {/* Avatar with Circular Countdown Ring */}
                   <div className="relative shrink-0 flex items-center justify-center">
                     {isTurn && gameStarted && !winner && (
-                      <svg className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
+                      <svg key={`ring-top-${turn}-${gameState}`} className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
                         <circle
                           cx="50%"
                           cy="50%"
@@ -3539,12 +3523,10 @@ function LudoApp() {
                           cy="50%"
                           r="44%"
                           fill="none"
-                          stroke={turnProgress > 0.4 ? '#10b981' : turnProgress > 0.18 ? '#f59e0b' : '#ef4444'}
                           strokeWidth="3.5"
                           strokeDasharray="100"
-                          strokeDashoffset={100 - (turnProgress * 100)}
                           strokeLinecap="round"
-                          className="transition-[stroke-dashoffset] duration-100"
+                          className="animate-turn-countdown"
                           pathLength="100"
                         />
                       </svg>
@@ -3643,7 +3625,7 @@ function LudoApp() {
                   {/* Avatar with Circular Countdown Ring */}
                   <div className="relative shrink-0 flex items-center justify-center">
                     {isTurn && gameStarted && !winner && (
-                      <svg className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
+                      <svg key={`ring-top-${turn}-${gameState}`} className="absolute -inset-1 sm:-inset-1.5 w-[calc(100%+8px)] sm:w-[calc(100%+12px)] h-[calc(100%+8px)] sm:h-[calc(100%+12px)] -rotate-90 pointer-events-none z-20 overflow-visible">
                         <circle
                           cx="50%"
                           cy="50%"
@@ -3657,12 +3639,10 @@ function LudoApp() {
                           cy="50%"
                           r="44%"
                           fill="none"
-                          stroke={turnProgress > 0.4 ? '#10b981' : turnProgress > 0.18 ? '#f59e0b' : '#ef4444'}
                           strokeWidth="3.5"
                           strokeDasharray="100"
-                          strokeDashoffset={100 - (turnProgress * 100)}
                           strokeLinecap="round"
-                          className="transition-[stroke-dashoffset] duration-100"
+                          className="animate-turn-countdown"
                           pathLength="100"
                         />
                       </svg>
@@ -3764,7 +3744,7 @@ function LudoApp() {
   };
 
   return (
-    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none overscroll-y-none touch-manipulation">
+    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`${gameStarted ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'} bg-[#031020] text-slate-100 flex flex-col relative select-none font-sans no-pull-refresh overscroll-none overscroll-y-none touch-manipulation`}>
 
       {/* Persistent HTML5 Audio for Local Music */}
       <audio ref={audioRef} loop className="hidden" />
@@ -3787,87 +3767,15 @@ function LudoApp() {
         />
       )}
 
-      {/* Top Header Bar */}
-      <header className="px-4 py-3 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between z-30 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">🎲</span>
-          <div>
-            <h1 className="text-sm font-black text-amber-400 tracking-wider">
-              {lang === 'ar' ? 'لودو الممالك الأسطورية' : 'Mythical Ludo: Kingdoms'}
-            </h1>
-            <p className="text-[10px] text-slate-400">
-              {lang === 'ar' ? 'النسخة المستقلة v1.0.0' : 'Standalone Edition v1.0.0'}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Coin Balance Badge */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/15 border border-amber-500/30 rounded-lg text-xs font-black text-amber-400 shadow-sm select-none">
-            <span className="text-sm">🪙</span>
-            <span>{playerCoins}</span>
-          </div>
-          {/* Replay Cinematic Intro */}
-          <button
-            onClick={() => setShowCinematicIntro(true)}
-            className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 rounded-lg text-xs font-bold text-amber-300 transition-colors cursor-pointer flex items-center gap-1"
-            title={lang === 'ar' ? 'مشاهدة الدخلة السينمائية 🎬' : 'Watch Intro 🎬'}
-          >
-            <span>🎬</span>
-            <span className="hidden sm:inline">{lang === 'ar' ? 'الدخلة' : 'Intro'}</span>
-          </button>
-
-          {/* Local Music Pill */}
-          <div className="flex items-center gap-1 bg-slate-900/80 px-2 py-1 rounded-lg border border-amber-500/30 text-xs">
-            <button
-              type="button"
-              onClick={toggleMusic}
-              className="cursor-pointer text-amber-300 hover:scale-110 active:scale-95 transition-transform"
-              title={isPlayingMusic ? 'إيقاف الموسيقى مؤقتاً' : 'تشغيل الموسيقى'}
-            >
-              {isPlayingMusic ? '⏸️' : '🎵'}
-            </button>
-            <span className="hidden sm:inline text-[10px] text-slate-300 max-w-[80px] truncate">
-              {musicTrackName || (lang === 'ar' ? 'أغاني' : 'Music')}
-            </span>
-          </div>
-
-          {/* Voice Mic Toggle */}
-          <button
-            type="button"
-            onClick={toggleMic}
-            className={`px-2 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-              isMicOn
-                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
-            }`}
-            title={isMicOn ? 'المايك نشط' : 'المايك مكتوم'}
-          >
-            <span>{isMicOn ? '🎙️' : '🔇'}</span>
-          </button>
-
-          {/* Sound FX Toggle */}
-          <button
-            onClick={() => setIsMuted(prev => !prev)}
-            className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-colors cursor-pointer"
-            title={isMuted ? 'تفعيل المؤثرات' : 'كتم المؤثرات'}
-          >
-            {isMuted ? '🔇' : '🔊'}
-          </button>
-
-          {/* Return to Room Lounge button if playing */}
-          {gameStarted && (
-            <button
-              onClick={returnToRoom}
-              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 rounded-lg text-xs font-black text-amber-300 transition-colors cursor-pointer flex items-center gap-1 shadow"
-              title={lang === 'ar' ? 'العودة لمجلس الغرفة' : 'Back to Room'}
-            >
-              <span>🏰</span>
-              <span>{lang === 'ar' ? 'مجلس الغرفة' : 'Room'}</span>
-            </button>
-          )}
-        </div>
-      </header>
+      {/* Floating Side Settings Button (بديل الهيدر العلوي لتوفير المساحة على الموبايل) */}
+      <button
+        type="button"
+        onClick={() => setShowSettingsModal(true)}
+        className="fixed top-2 left-2 z-40 w-9 h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border-2 border-amber-400/75 text-amber-300 flex items-center justify-center text-base shadow-lg active:scale-90 transition-transform cursor-pointer"
+        title={lang === 'ar' ? 'الإعدادات والتحكم السريع ⚙️' : 'Settings & Quick Controls ⚙️'}
+      >
+        ⚙️
+      </button>
 
       {/* Main Content Area */}
       {!gameStarted ? (
@@ -3907,17 +3815,24 @@ function LudoApp() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                 {LUDO_PUBLIC_ROOMS.map((room) => {
                   const isFull = room.currentPlayers >= room.playerCount;
+                  const isInGame = room.status === 'in_game';
                   return (
                     <div
                       key={room.id}
-                      className="bg-slate-900/80 border border-slate-800 hover:border-emerald-500/50 p-4 rounded-2xl flex flex-col justify-between gap-3 transition-all shadow-md hover:shadow-emerald-950/20"
+                      className={`p-4 rounded-2xl flex flex-col justify-between gap-3 transition-all shadow-md border ${
+                        isInGame
+                          ? 'bg-purple-950/30 border-purple-500/50 hover:border-purple-400/80'
+                          : 'bg-slate-900/85 border-amber-500/35 hover:border-amber-400/70'
+                      }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2.5">
                           <img
                             src={room.hostAvatar}
                             alt={room.hostName}
-                            className="w-10 h-10 rounded-full border border-emerald-400/40 bg-slate-900 object-cover"
+                            className={`w-10 h-10 rounded-full border bg-slate-900 object-cover ${
+                              isInGame ? 'border-purple-400/50' : 'border-amber-400/50'
+                            }`}
                           />
                           <div>
                             <h4 className="text-xs font-black text-white flex items-center gap-1.5">
@@ -3931,13 +3846,13 @@ function LudoApp() {
                         </div>
                         <span
                           className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
-                            room.status === 'in_game'
-                              ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            isInGame
+                              ? 'bg-purple-500/15 border-purple-400/40 text-purple-300'
+                              : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                           }`}
                         >
-                          {room.status === 'in_game'
-                            ? (lang === 'ar' ? 'جارية 🔥' : 'In Game 🔥')
+                          {isInGame
+                            ? (lang === 'ar' ? 'المباراة جارية 🔥' : 'In Game 🔥')
                             : (lang === 'ar' ? 'بانتظار لاعبين ⏳' : 'Waiting ⏳')}
                         </span>
                       </div>
@@ -3946,7 +3861,7 @@ function LudoApp() {
                       <div className="grid grid-cols-3 gap-2 bg-black/40 p-2 rounded-xl text-center text-[10px]">
                         <div>
                           <span className="text-slate-500 block">{lang === 'ar' ? 'اللاعبين' : 'Players'}</span>
-                          <span className="font-black text-emerald-400">
+                          <span className={`font-black ${isInGame ? 'text-purple-300' : 'text-emerald-400'}`}>
                             {room.currentPlayers}/{room.playerCount}
                           </span>
                         </div>
@@ -3964,7 +3879,7 @@ function LudoApp() {
                         </div>
                       </div>
 
-                      {/* Unified Single Action Button: Enter Room */}
+                      {/* Unified Single Action Button: Purple when In Game, Gold when Waiting */}
                       <div className="pt-1">
                         <button
                           type="button"
@@ -3974,14 +3889,14 @@ function LudoApp() {
                             joinRoomFromList(room, roleToAssign);
                           }}
                           className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow active:scale-98 ${
-                            room.status === 'in_game' || isFull
+                            isInGame || isFull
                               ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
                               : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
                           }`}
                         >
-                          <span>{room.status === 'in_game' || isFull ? '🎙️' : '🚪'}</span>
+                          <span>{isInGame || isFull ? '🎙️' : '🚪'}</span>
                           <span>
-                            {room.status === 'in_game'
+                            {isInGame
                               ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
                               : isFull
                               ? (lang === 'ar' ? 'دخول الغرفة (المقاعد ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
@@ -4622,76 +4537,27 @@ function LudoApp() {
           </div>
         )
       ) : (
-        /* Active Game Board - Yalla Ludo Authentic Style */
+        /* Active Game Board - Single-Screen Mobile Fit (Zero Scroll) */
         <div
-          className="flex-1 w-full flex flex-col justify-between items-center relative overflow-y-auto overflow-x-hidden p-1.5 sm:p-2.5"
+          className="h-full w-full flex flex-col justify-between items-center relative overflow-hidden py-1 px-1.5 sm:p-2"
           style={{
             backgroundColor: '#0a3526',
             backgroundImage: `
-              linear-gradient(135deg, rgba(255,255,255,0.035) 25%, transparent 25%),
-              linear-gradient(225deg, rgba(255,255,255,0.035) 25%, transparent 25%),
-              linear-gradient(45deg, rgba(255,255,255,0.035) 25%, transparent 25%),
-              linear-gradient(315deg, rgba(255,255,255,0.035) 25%, transparent 25%)
+              linear-gradient(135deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+              linear-gradient(225deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+              linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+              linear-gradient(315deg, rgba(255,255,255,0.03) 25%, transparent 25%)
             `,
             backgroundPosition: '20px 0, 20px 0, 0 0, 0 0',
             backgroundSize: '40px 40px',
             backgroundRepeat: 'repeat'
           }}
         >
-          {/* 1. TOP BAR: Power, Trophy, Spectator Seats & User Profile Chip (Exact Match to Image 1) */}
-          <div className="w-full max-w-lg flex flex-col gap-1.5 z-20 shrink-0">
-            {/* Header: Exit, Trophy, Spectator Seats, Profile */}
+          {/* 1. COMPACT TOP BAR: Profile Chip, Mic Seats & Status (space left on the left side for floating ⚙️ button) */}
+          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0 pl-12">
+            {/* Row 1: User Profile Chip + Spectator / Voice Seats Bar */}
             <div className="w-full flex items-center justify-between gap-1.5">
-              {/* Left Controls: Power, Trophy, Room Lounge, & Music */}
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={resetGame}
-                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-slate-700/80 hover:bg-rose-950/80 hover:border-rose-600 flex items-center justify-center text-xs text-rose-300 transition-colors shadow cursor-pointer active:scale-90"
-                  title={lang === 'ar' ? 'خروج / إعادة ضبط' : 'Exit / Reset'}
-                >
-                  ⏻
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowH2HModal(true)}
-                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-amber-500/50 hover:bg-amber-500/20 flex items-center justify-center text-sm shadow cursor-pointer active:scale-90"
-                  title={lang === 'ar' ? 'سجل المواجهات والبطولات' : 'H2H & Leaderboard'}
-                >
-                  🏆
-                </button>
-                <button
-                  type="button"
-                  onClick={returnToRoom}
-                  className="w-8 h-8 rounded-full bg-slate-900/80 border border-amber-500/50 hover:bg-amber-500/20 flex items-center justify-center text-xs shadow cursor-pointer active:scale-90 text-amber-300"
-                  title={lang === 'ar' ? 'العودة لمجلس الغرفة' : 'Back to Room Lounge'}
-                >
-                  🏰
-                </button>
-                {/* 🎵 Music Button in Game Header */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!musicTrackName) {
-                      musicFileInputRef.current?.click();
-                    } else {
-                      setIsMusicModalOpen(true);
-                    }
-                  }}
-                  className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs shadow cursor-pointer active:scale-90 transition-all ${
-                    isPlayingMusic
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400 text-white animate-pulse'
-                      : musicTrackName
-                      ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
-                      : 'bg-slate-900/80 border-slate-700/80 hover:border-amber-400 text-slate-300'
-                  }`}
-                  title={lang === 'ar' ? 'مشغل الأغاني الأسطواني 🎵' : 'Vinyl Music Player 🎵'}
-                >
-                  🎵
-                </button>
-              </div>
-
-              {/* Spectator / Voice Seats Bar (المقاعد للاعبين والمتفرجين - سحب بدون شريط سكرول رمادي) */}
+              {/* Spectator / Voice Seats Bar */}
               <div
                 ref={micSeatsScrollRef}
                 onMouseDown={handleMicMouseDown}
@@ -4699,7 +4565,7 @@ function LudoApp() {
                 onMouseUp={handleMicMouseLeaveOrUp}
                 onMouseMove={handleMicMouseMove}
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/40 rounded-full border border-white/10 backdrop-blur-sm no-scrollbar [&::-webkit-scrollbar]:hidden shrink min-w-0"
+                className="flex items-center gap-1 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1.5 bg-black/45 rounded-full border border-white/10 no-scrollbar [&::-webkit-scrollbar]:hidden flex-1 min-w-0"
               >
                 {/* Level / Room Rank Badge */}
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-950/90 border border-emerald-400/60 flex items-center justify-center text-[9px] font-black text-amber-300 shadow shrink-0">
@@ -4832,8 +4698,8 @@ function LudoApp() {
               </div>
             </div>
 
-            {/* Sub-bar: Coin chest chip, Turn / Status badge, Settings gear */}
-            <div className="w-full flex items-center justify-between px-1">
+            {/* Sub-bar: Coin chest chip & Turn / Status badge */}
+            <div className="w-full flex items-center justify-between gap-1.5">
               {/* Coin Chest Button */}
               <button
                 type="button"
@@ -4846,7 +4712,7 @@ function LudoApp() {
                   playCoinChime();
                   setStatusMessage(lang === 'ar' ? '🎁 تم جمع مكافأة الصندوق اليومي (+50 🪙)!' : '🎁 Collected daily bonus (+50 🪙)!');
                 }}
-                className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black shadow cursor-pointer active:scale-95 transition-all"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-black shadow cursor-pointer active:scale-95 transition-transform shrink-0"
                 title={lang === 'ar' ? 'صندوق المكافآت الذهبية' : 'Coins Chest'}
               >
                 <span>🎁</span>
@@ -4855,32 +4721,20 @@ function LudoApp() {
               </button>
 
               {/* Turn / Game Status Badge */}
-              <div className="px-3 py-0.5 rounded-full bg-black/60 border border-amber-400/40 text-[10px] sm:text-xs font-black text-amber-300 shadow backdrop-blur-sm truncate max-w-[220px]">
+              <div className="px-2.5 py-0.5 rounded-full bg-black/60 border border-amber-400/40 text-[10px] sm:text-xs font-black text-amber-300 shadow truncate flex-1 text-center">
                 {statusMessage}
               </div>
-
-              {/* Settings Gear - ONLY FOR HOST & DEPUTIES / ADMINS */}
-              {canAccessSettings && (
-                <button
-                  type="button"
-                  onClick={() => setShowSettingsModal(true)}
-                  className="w-7 h-7 rounded-full bg-slate-900/80 border border-amber-500/60 hover:border-amber-400 flex items-center justify-center text-xs text-amber-300 transition-colors shadow cursor-pointer active:scale-90"
-                  title={lang === 'ar' ? 'إعدادات الغرفة (للمشرفين) ⚙️' : 'Room Settings (Admins) ⚙️'}
-                >
-                  ⚙️
-                </button>
-              )}
             </div>
           </div>
 
-          {/* 2. CENTER LUDO BOARD: Large, Responsive, Unsquashed (Profiles inside the corner bases!) */}
+          {/* 2. CENTER LUDO BOARD: Auto-scales to fit 100% inside 100dvh with ZERO scroll */}
           <div
             dir="ltr"
-            className="w-full max-w-[min(96vw,450px)] aspect-square rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.85)] border-2 border-emerald-800/80 my-auto relative shrink-0 z-10"
+            className="w-[min(96vw,440px,calc(100dvh-205px))] aspect-square rounded-2xl shadow-xl border-2 border-emerald-800/80 relative shrink-0 z-10"
           >
             {/* Bottom Layer: Unified 15x15 Board Grid with clean gaps separating all squares & bases */}
             <div
-              className={`w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 rounded-[14px] overflow-hidden shadow-[inset_0_0_20px_rgba(0,0,0,0.25)] ${
+              className={`w-full h-full grid gap-[2px] sm:gap-[3px] p-[3px] sm:p-1 rounded-[14px] overflow-hidden ${
                 selectedBoardSkin === 'classic' ? 'bg-slate-200' : 'bg-slate-950'
               }`}
               style={{
@@ -4911,13 +4765,13 @@ function LudoApp() {
             </div>
           </div>
 
-          {/* 3. LIVE CHAT TICKER & ROOM BANNER (Exact Match to Image 1) */}
-          <div className="w-full max-w-lg flex flex-col gap-1.5 z-20 shrink-0 mt-1">
+          {/* 3. COMPACT LIVE CHAT TICKER & BOTTOM TOOLBAR */}
+          <div className="w-full max-w-lg flex flex-col gap-1 z-20 shrink-0">
             {/* Chat Tabs & Live Ticker */}
-            <div className="w-full bg-black/40 border border-white/10 rounded-2xl p-2 backdrop-blur-md flex flex-col gap-1">
+            <div className="w-full bg-black/55 border border-white/10 rounded-xl px-2 py-1 flex flex-col gap-0.5">
               {/* Category Pills: جميع, هدية, خبر */}
-              <div className="flex items-center justify-between border-b border-white/10 pb-1">
-                <div className="flex items-center gap-2 text-[10px] font-black">
+              <div className="flex items-center justify-between border-b border-white/10 pb-0.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-black">
                   {[
                     { id: 'all', labelAr: 'جميع', labelEn: 'All' },
                     { id: 'gift', labelAr: 'هدية', labelEn: 'Gifts' },
@@ -4927,7 +4781,7 @@ function LudoApp() {
                       key={tab.id}
                       type="button"
                       onClick={() => setChatTab(tab.id as any)}
-                      className={`px-2 py-0.5 rounded-full transition-all cursor-pointer ${
+                      className={`px-2 py-0.2 rounded-full transition-colors cursor-pointer ${
                         chatTab === tab.id
                           ? 'bg-amber-400 text-slate-950 shadow'
                           : 'text-slate-400 hover:text-white'
@@ -4943,7 +4797,7 @@ function LudoApp() {
               </div>
 
               {/* Ticker Feed Messages */}
-              <div className="h-10 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
+              <div className="h-8 overflow-y-auto no-scrollbar flex flex-col justify-end text-[10px] leading-tight space-y-0.5">
                 {chatMessages
                   .filter(m => chatTab === 'all' || m.type === chatTab)
                   .slice(0, 3)
@@ -5846,95 +5700,176 @@ function LudoApp() {
         </div>
       )}
 
-      {/* ⚙️ SETTINGS MODAL - FOR HOST & DEPUTIES ONLY */}
-      {showSettingsModal && canAccessSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-sm bg-slate-950 border-2 border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3 text-slate-100">
+      {/* ⚙️ FLOATING SETTINGS & QUICK CONTROLS MODAL */}
+      {showSettingsModal && (
+        <div
+          onClick={() => setShowSettingsModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-slate-950 border-2 border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3 text-slate-100 max-h-[88dvh] overflow-y-auto"
+          >
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <span className="text-sm font-black text-amber-300 flex items-center gap-1.5">
                 <span>⚙️</span>
-                <span>{lang === 'ar' ? 'إعدادات الغرفة (للمشرفين فقط)' : 'Room Settings (Admins only)'}</span>
+                <span>{lang === 'ar' ? 'الإعدادات والتحكم السريع' : 'Settings & Quick Controls'}</span>
               </span>
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(false)}
-                className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300">
+                  🪙 {playerCoins}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(false)}
+                  className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2.5 text-xs">
-              {/* Sound Toggle */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'المؤثرات الصوتية:' : 'Sound Effects:'}</span>
+            <div className="space-y-2 text-xs">
+              {/* Quick Control Buttons Grid (نُقلت من الهيدر العلوي) */}
+              <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={() => setIsMuted(prev => !prev)}
-                  className={`px-3 py-1 rounded-lg text-xs font-black transition-colors ${
-                    isMuted ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                  className={`p-2 rounded-xl border font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isMuted ? 'bg-rose-950/80 text-rose-300 border-rose-800' : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                   }`}
                 >
-                  {isMuted ? '🔇 مكتوم' : '🔊 شغال'}
+                  <span>{isMuted ? '🔇' : '🔊'}</span>
+                  <span>{isMuted ? (lang === 'ar' ? 'الصوت مكتوم' : 'Muted') : (lang === 'ar' ? 'المؤثرات شغالة' : 'Sound On')}</span>
                 </button>
-              </div>
 
-              {/* Theme Selection */}
-              <div className="space-y-1 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'تصميم الرقعة (الثيم):' : 'Board Theme:'}</span>
-                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                  {(['classic', 'space', 'underwater', 'ancient'] as BoardTheme[]).map((themeKey) => (
-                    <button
-                      key={themeKey}
-                      type="button"
-                      onClick={() => handleSelectTheme(themeKey)}
-                      className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition-all ${
-                        selectedBoardSkin === themeKey
-                          ? 'bg-amber-500/20 text-amber-300 border-amber-400'
-                          : 'bg-slate-950/60 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      {BOARD_SKINS[themeKey].icon} {lang === 'ar' ? BOARD_SKINS[themeKey].nameAr : BOARD_SKINS[themeKey].nameEn}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Mic Permission Mode */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div>
-                  <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'صلاحيات المايك:' : 'Mic Mode:'}</span>
-                  <span className="text-[9px] text-slate-500">
-                    {roomMicMode === 'all' ? (lang === 'ar' ? 'متاح للجميع' : 'Open for all') : (lang === 'ar' ? 'للمشرفين فقط' : 'Admins only')}
-                  </span>
-                </div>
                 <button
                   type="button"
-                  onClick={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors ${
-                    roomMicMode === 'all'
-                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                      : 'bg-amber-950 text-amber-300 border border-amber-800'
+                  onClick={toggleMic}
+                  className={`p-2 rounded-xl border font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isMicOn ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' : 'bg-rose-950/80 text-rose-300 border-rose-800'
                   }`}
                 >
-                  {roomMicMode === 'all' ? '🎙️ للجميع' : '👑 للمشرفين'}
+                  <span>{isMicOn ? '🎙️' : '🔇'}</span>
+                  <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic Active') : (lang === 'ar' ? 'المايك مكتوم' : 'Mic Off')}</span>
                 </button>
-              </div>
 
-              {/* Reset Game */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'إعادة ضبط المعركة:' : 'Reset Match:'}</span>
                 <button
                   type="button"
                   onClick={() => {
                     setShowSettingsModal(false);
-                    resetGame();
+                    if (!musicTrackName) {
+                      musicFileInputRef.current?.click();
+                    } else {
+                      setIsMusicModalOpen(true);
+                    }
                   }}
-                  className="px-3 py-1 rounded-lg bg-rose-950 text-rose-300 border border-rose-800 text-xs font-black"
+                  className="p-2 rounded-xl border border-amber-500/35 bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  🔄 إعادة
+                  <span>{isPlayingMusic ? '⏸️' : '🎵'}</span>
+                  <span className="truncate">{musicTrackName || (lang === 'ar' ? 'مشغل الأغاني' : 'Music')}</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setShowCinematicIntro(true);
+                  }}
+                  className="p-2 rounded-xl border border-amber-500/35 bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>🎬</span>
+                  <span>{lang === 'ar' ? 'الدخلة السينمائية' : 'Intro'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setShowH2HModal(true);
+                  }}
+                  className="p-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>🏆</span>
+                  <span>{lang === 'ar' ? 'سجل المواجهات' : 'H2H Stats'}</span>
+                </button>
+
+                {gameStarted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsModal(false);
+                      returnToRoom();
+                    }}
+                    className="p-2 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>🏰</span>
+                    <span>{lang === 'ar' ? 'مجلس الغرفة' : 'Room Lounge'}</span>
+                  </button>
+                )}
               </div>
+
+              {/* Admin / Host Settings Section */}
+              {canAccessSettings && (
+                <>
+                  {/* Theme Selection */}
+                  <div className="space-y-1 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'تصميم الرقعة (الثيم):' : 'Board Theme:'}</span>
+                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                      {(['classic', 'space', 'underwater', 'ancient'] as BoardTheme[]).map((themeKey) => (
+                        <button
+                          key={themeKey}
+                          type="button"
+                          onClick={() => handleSelectTheme(themeKey)}
+                          className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                            selectedBoardSkin === themeKey
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                              : 'bg-slate-950/60 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          {BOARD_SKINS[themeKey].icon} {lang === 'ar' ? BOARD_SKINS[themeKey].nameAr : BOARD_SKINS[themeKey].nameEn}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Mic Permission Mode */}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div>
+                      <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'صلاحيات المايك:' : 'Mic Mode:'}</span>
+                      <span className="text-[9px] text-slate-500">
+                        {roomMicMode === 'all' ? (lang === 'ar' ? 'متاح للجميع' : 'Open for all') : (lang === 'ar' ? 'للمشرفين فقط' : 'Admins only')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                        roomMicMode === 'all'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                          : 'bg-amber-950 text-amber-300 border border-amber-800'
+                      }`}
+                    >
+                      {roomMicMode === 'all' ? '🎙️ للجميع' : '👑 للمشرفين'}
+                    </button>
+                  </div>
+
+                  {/* Reset Game */}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-slate-300 font-bold">{lang === 'ar' ? 'إعادة ضبط المعركة:' : 'Reset Match:'}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSettingsModal(false);
+                        resetGame();
+                      }}
+                      className="px-3 py-1 rounded-lg bg-rose-950 text-rose-300 border border-rose-800 text-xs font-black cursor-pointer"
+                    >
+                      🔄 إعادة
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -6063,6 +5998,25 @@ function LudoApp() {
         }
         .ludo-dice-face {
           backface-visibility: hidden;
+        }
+        @keyframes turn-ring-countdown {
+          0% {
+            stroke-dashoffset: 0;
+            stroke: #10b981;
+          }
+          60% {
+            stroke: #f59e0b;
+          }
+          82% {
+            stroke: #ef4444;
+          }
+          100% {
+            stroke-dashoffset: 100;
+            stroke: #ef4444;
+          }
+        }
+        .animate-turn-countdown {
+          animation: turn-ring-countdown 10s linear forwards;
         }
       `}} />
     </div>
