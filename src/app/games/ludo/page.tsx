@@ -908,12 +908,76 @@ function LudoApp() {
     yellow: null,
   });
 
+  const MicIcon = ({ muted = false, className = 'w-3.5 h-3.5' }: { muted?: boolean; className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+      {muted && <line x1="3" y1="3" x2="21" y2="21" />}
+    </svg>
+  );
+
   // Spectator Voice Seats (6 seats)
   const [spectatorSeats, setSpectatorSeats] = useState<Array<{ id: string; name: string; avatar: string; isMicOn: boolean; isDeputy?: boolean; isMuted?: boolean }>>([
     { id: 'spec-1', name: 'البرنس حامد', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hamed', isMicOn: true, isMuted: false },
     { id: 'spec-2', name: 'حنين نورتي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen', isMicOn: false, isMuted: false },
     { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true, isMuted: false },
   ]);
+
+  // Interactive 6 Top Voice Mic Seats (التنقل بين مقاعد المايك بحرية)
+  type VoiceMicSlot = {
+    id: string;
+    name: string;
+    avatar: string;
+    isHost?: boolean;
+    isDeputy?: boolean;
+  } | null;
+
+  const [voiceMicSlots, setVoiceMicSlots] = useState<VoiceMicSlot[]>(() => [
+    null,
+    null,
+    null,
+    { id: 'spec-sahir', name: 'الساحر', avatar: '/laugh_emote.png' },
+    { id: queryHostId, name: queryHostName, avatar: queryHostAvatar || '/laugh_emote.png', isHost: true },
+    { id: 'spec-mahmoud', name: 'محمود', avatar: '/kaizen_emoji_pack.png' },
+  ]);
+
+  const handleTakeVoiceSeat = (slotIndex: number) => {
+    if (roomMicMode === 'admins_only' && !canAccessSettings) {
+      setStatusMessage(lang === 'ar' ? '👑 المايك مقتصر على المشرفين حالياً!' : '👑 Mic is currently admins-only!');
+      return;
+    }
+    const myId = userProfile?.id || '12842582';
+    const myName = userProfile?.username || 'Ali';
+    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
+
+    setVoiceMicSlots(prev => {
+      const next = prev.map(s => (s && s.id === myId ? null : s));
+      next[slotIndex] = {
+        id: myId,
+        name: myName,
+        avatar: myAvatar,
+        isHost,
+        isDeputy,
+      };
+      return next;
+    });
+    setStatusMessage(
+      lang === 'ar'
+        ? `🎤 تم انتقالك إلى مقعد المايك رقم ${slotIndex + 1}`
+        : `🎤 Moved to voice mic seat #${slotIndex + 1}`
+    );
+    addChatMessage(
+      lang === 'ar' ? `🎤 صعد ${myName} إلى مقعد المايك رقم ${slotIndex + 1}` : `🎤 ${myName} moved to mic seat #${slotIndex + 1}`,
+      'system'
+    );
+  };
+
+  const handleLeaveVoiceSeat = () => {
+    const myId = userProfile?.id || '12842582';
+    setVoiceMicSlots(prev => prev.map(s => (s && s.id === myId ? null : s)));
+    setStatusMessage(lang === 'ar' ? '⬇️ نزلت من مقعد المايك' : '⬇️ Left voice mic seat');
+  };
 
   // 👥 Friend Requests State (إضافة الأصدقاء)
   const [sentFriendRequests, setSentFriendRequests] = useState<string[]>([]);
@@ -3553,14 +3617,28 @@ function LudoApp() {
                             }}
                           />
                         )}
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ${isMutedSeat ? 'bg-rose-600' : 'bg-emerald-600'} text-[7px] flex items-center justify-center shadow z-10 text-white font-black`}>
-                          {isMutedSeat ? '🔇' : '🎙️'}
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${isMutedSeat ? 'bg-rose-600' : 'bg-emerald-600'} flex items-center justify-center shadow z-10 text-white`}>
+                          <MicIcon muted={isMutedSeat} className="w-2 h-2" />
                         </div>
                         {isModSeat && (
                           <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
                         )}
                       </div>
                     </div>
+
+                    {!isBlue && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedGiftTarget(baseColor);
+                        }}
+                        className="px-1.5 py-0.5 rounded-full bg-black/40 hover:bg-black/65 border border-amber-300/60 text-[10px] sm:text-xs leading-none shadow active:scale-90 transition-transform cursor-pointer shrink-0"
+                        title={lang === 'ar' ? 'سلام وحرب (هدايا ومقالب)' : 'Peace & War Gifts'}
+                      >
+                        🕊️⚔️
+                      </button>
+                    )}
 
                     <div className="shrink-0">
                       {renderDiceWidget(baseColor)}
@@ -4533,87 +4611,73 @@ function LudoApp() {
                 <span>2</span>
               </div>
 
-              {/* Empty Seats with + */}
-              {[1, 2, 3].map(seatIdx => (
-                <button
-                  key={`seat-${seatIdx}`}
-                  type="button"
-                  onClick={() => {
-                    setStatusMessage(lang === 'ar' ? '🎤 المقعد الصوتي متاح، تم حجز دورك!' : '🎤 Voice seat available!');
-                    addChatMessage(lang === 'ar' ? '🎤 انضممت إلى المقعد الصوتي للمتفرجين.' : 'Joined voice seat.', 'system');
-                  }}
-                  className="w-8 h-8 rounded-full bg-black/30 border border-white/20 hover:border-amber-400 hover:bg-amber-400/20 flex items-center justify-center text-xs text-slate-200 transition-all shrink-0 cursor-pointer active:scale-90"
-                  title={lang === 'ar' ? 'انضم للمقعد الصوتي' : 'Join Voice Seat'}
-                >
-                  +
-                </button>
-              ))}
+              {/* 6 Interactive Switchable Voice Mic Seats */}
+              {voiceMicSlots.map((slot, slotIdx) => {
+                if (!slot) {
+                  return (
+                    <button
+                      key={`mic-slot-${slotIdx}`}
+                      type="button"
+                      onClick={() => handleTakeVoiceSeat(slotIdx)}
+                      className="w-8 h-8 rounded-full bg-black/30 border border-white/25 hover:border-amber-400 hover:bg-amber-400/20 flex items-center justify-center text-xs text-slate-200 transition-transform shrink-0 cursor-pointer active:scale-90"
+                      title={lang === 'ar' ? `اصعد على المايك رقم ${slotIdx + 1}` : `Sit on mic seat #${slotIdx + 1}`}
+                    >
+                      +
+                    </button>
+                  );
+                }
 
-              {/* Seated Participant 1: Al-Sahir */}
-              <div
-                onClick={() => handleUserClick({
-                  id: 'spec-sahir',
-                  name: 'الساحر',
-                  avatar: '/laugh_emote.png',
-                  isSpectator: true,
-                  isBot: false,
-                })}
-                className="relative w-8 h-8 rounded-full border-2 border-amber-400 p-0.5 shrink-0 bg-slate-900 cursor-pointer hover:scale-105 transition-transform"
-                title="الساحر (انقر للإشراف / الملف)"
-              >
-                <img src="/laugh_emote.png" alt="الساحر" className="w-full h-full object-cover rounded-full" />
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-sahir') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
-                  {mutedUserIds.includes('spec-sahir') ? '🔇' : '🎙️'}
-                </div>
-                {moderatorIds.includes('spec-sahir') && (
-                  <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                )}
-              </div>
+                const isMySeat = slot.id === (userProfile?.id || '12842582');
+                const isSlotMuted = isMySeat ? isMicMuted : mutedUserIds.includes(slot.id);
+                const isSlotMod = moderatorIds.includes(slot.id) || slot.isDeputy;
 
-              {/* Room Host On Mic */}
-              <div
-                onClick={() => handleUserClick({
-                  id: roomHostId,
-                  name: roomHostName,
-                  avatar: roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png',
-                  isHost: true,
-                  isDeputy: false,
-                  isMicOn: isHost ? isMicOn : true,
-                })}
-                className="relative w-8 h-8 rounded-full border-2 border-amber-400 p-0.5 shrink-0 bg-slate-900 ring-2 ring-amber-400/50 cursor-pointer hover:scale-105 transition-transform"
-                title={`${roomHostName} (👑 صاحب الغرفة على المايك)`}
-              >
-                <img
-                  src={roomHostAvatar || userProfile?.avatar_url || '/laugh_emote.png'}
-                  alt={roomHostName}
-                  className="w-full h-full object-cover rounded-full"
-                />
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes(roomHostId) ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
-                  {mutedUserIds.includes(roomHostId) ? '🔇' : '🎙️'}
-                </div>
-                <div className="absolute -top-1.5 -right-1 text-[9px] z-10">👑</div>
-              </div>
-
-              {/* Seated Participant 3: Mahmoud */}
-              <div
-                onClick={() => handleUserClick({
-                  id: 'spec-mahmoud',
-                  name: 'محمود',
-                  avatar: '/kaizen_emoji_pack.png',
-                  isSpectator: true,
-                  isBot: false,
-                })}
-                className="relative w-8 h-8 rounded-full border border-amber-300 p-0.5 shrink-0 bg-slate-900 cursor-pointer hover:scale-105 transition-transform"
-                title="محمود (انقر للإشراف / الملف)"
-              >
-                <img src="/kaizen_emoji_pack.png" alt="محمود" className="w-full h-full object-cover rounded-full" />
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${mutedUserIds.includes('spec-mahmoud') ? 'bg-rose-600' : 'bg-emerald-600'} border border-white text-[7px] flex items-center justify-center text-white font-bold`}>
-                  {mutedUserIds.includes('spec-mahmoud') ? '🔇' : '🎙️'}
-                </div>
-                {moderatorIds.includes('spec-mahmoud') && (
-                  <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
-                )}
-              </div>
+                return (
+                  <div
+                    key={`mic-slot-${slotIdx}`}
+                    onClick={() => {
+                      if (isMySeat) {
+                        setIsMicMuted(prev => !prev);
+                        setStatusMessage(!isMicMuted ? (lang === 'ar' ? 'تم كتم المايكروفون' : 'Mic muted') : (lang === 'ar' ? 'تم تشغيل المايكروفون' : 'Mic active'));
+                      } else {
+                        handleUserClick({
+                          id: slot.id,
+                          name: slot.name,
+                          avatar: slot.avatar,
+                          isSpectator: true,
+                          isBot: false,
+                          isHost: slot.isHost,
+                          isDeputy: slot.isDeputy,
+                        });
+                      }
+                    }}
+                    className={`relative w-8 h-8 rounded-full border-2 ${isMySeat ? 'border-emerald-400 ring-2 ring-emerald-400/40' : slot.isHost ? 'border-amber-400 ring-2 ring-amber-400/40' : 'border-amber-300'} p-0.5 shrink-0 bg-slate-900 cursor-pointer hover:scale-105 transition-transform`}
+                    title={isMySeat ? (lang === 'ar' ? 'مقعدك (اضغط لكتم/تشغيل المايك)' : 'Your seat (click to mute/unmute)') : `${slot.name}`}
+                  >
+                    <img src={slot.avatar} alt={slot.name} className="w-full h-full object-cover rounded-full" />
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${isSlotMuted ? 'bg-rose-600' : 'bg-emerald-600'} border border-white flex items-center justify-center text-white`}>
+                      <MicIcon muted={isSlotMuted} className="w-2 h-2" />
+                    </div>
+                    {isMySeat && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLeaveVoiceSeat();
+                        }}
+                        className="absolute -top-1 -left-1 w-3.5 h-3.5 rounded-full bg-slate-950 border border-white/50 text-[7px] text-white flex items-center justify-center cursor-pointer hover:bg-rose-600"
+                        title={lang === 'ar' ? 'انزل من المايك' : 'Leave mic seat'}
+                      >
+                        ✕
+                      </button>
+                    )}
+                    {slot.isHost ? (
+                      <div className="absolute -top-1.5 -right-1 text-[9px] z-10">👑</div>
+                    ) : isSlotMod ? (
+                      <div className="absolute -top-1 -right-1 text-[8px] z-10">⭐</div>
+                    ) : null}
+                  </div>
+                );
+              })}
 
               {/* Locked VIP Seat */}
               <div className="w-8 h-8 rounded-full bg-black/30 border border-white/15 flex items-center justify-center text-xs text-slate-400 shrink-0">
@@ -4829,16 +4893,16 @@ function LudoApp() {
               )}
 
               <div dir="ltr" className="w-full flex items-center justify-between gap-2">
-                {/* Left Cluster: Gift, Menu, History */}
+                {/* Left Cluster: Peace & War, Menu, History */}
                 <div className="flex items-center gap-2">
-                  {/* Gift Modal Trigger 🎁 */}
+                  {/* Peace & War Trigger 🕊️⚔️ */}
                   <button
                     type="button"
                     onClick={() => setSelectedGiftTarget('red')}
-                    className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-lg shadow hover:scale-105 active:scale-95 transition-transform cursor-pointer border border-amber-300"
-                    title={lang === 'ar' ? 'صندوق الهدايا والمقالب 🎁' : 'Gift Box 🎁'}
+                    className="h-9 px-2.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center text-sm shadow hover:scale-105 active:scale-95 transition-transform cursor-pointer border border-amber-300"
+                    title={lang === 'ar' ? 'السلام والحرب (هدايا ومقالب) 🕊️⚔️' : 'Peace & War 🕊️⚔️'}
                   >
-                    🎁
+                    🕊️⚔️
                   </button>
 
                   {/* Grid Menu Button ⊞ */}
@@ -4864,21 +4928,21 @@ function LudoApp() {
 
                 {/* Right Cluster: Mic, Smileys, Quick Chat */}
                 <div className="flex items-center gap-2">
-                  {/* Mic Toggle Button 🎙️ */}
+                  {/* Mic Toggle Button (Microphone SVG icon, NOT speaker) */}
                   <button
                     type="button"
                     onClick={() => {
                       setIsMicMuted(prev => !prev);
-                      setStatusMessage(!isMicMuted ? (lang === 'ar' ? '🔇 تم كتم المايك' : 'Mic muted') : (lang === 'ar' ? '🎙️ تم تشغيل المايك' : 'Mic unmuted'));
+                      setStatusMessage(!isMicMuted ? (lang === 'ar' ? 'تم كتم المايكروفون' : 'Mic muted') : (lang === 'ar' ? 'تم تشغيل المايكروفون' : 'Mic unmuted'));
                     }}
-                    className={`w-9 h-9 rounded-full border text-sm flex items-center justify-center shadow active:scale-95 transition-transform cursor-pointer ${
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center shadow active:scale-95 transition-transform cursor-pointer ${
                       isMicMuted
                         ? 'bg-rose-950/80 border-rose-500 text-rose-300'
                         : 'bg-black/45 border-emerald-400/70 text-emerald-300'
                     }`}
-                    title={isMicMuted ? 'تفعيل المايك' : 'كتم المايك'}
+                    title={isMicMuted ? 'تفعيل المايكروفون' : 'كتم المايكروفون'}
                   >
-                    {isMicMuted ? '🔇' : '🎙️'}
+                    <MicIcon muted={isMicMuted} className="w-4 h-4" />
                   </button>
 
                   {/* Smileys / Emotes Picker Button 😄 */}
@@ -4917,17 +4981,23 @@ function LudoApp() {
         </div>
       )}
 
-      {/* 🎁 GIFT / PRANK SELECTION MODAL */}
+      {/* 🕊️⚔️ PEACE & WAR GIFT / PRANK SELECTION MODAL */}
       {selectedGiftTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl relative flex flex-col gap-3">
+        <div
+          onClick={() => setSelectedGiftTarget(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl relative flex flex-col gap-3"
+          >
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">🎁</span>
+                <span className="text-xl">🕊️⚔️</span>
                 <div>
                   <h3 className="text-sm font-black text-amber-400">
-                    {lang === 'ar' ? 'صندوق الهدايا والمقالب' : 'Gift & Prank Box'}
+                    {lang === 'ar' ? 'السلام والحرب (الهدايا والمقالب)' : 'Peace & War (Gifts & Pranks)'}
                   </h3>
                   <p className="text-[10px] text-slate-400">
                     {lang === 'ar' ? 'إرسال إلى: ' : 'Send to: '}
@@ -4950,7 +5020,28 @@ function LudoApp() {
               </div>
             </div>
 
-            {/* Category Switcher */}
+            {/* Target Player Selector */}
+            <div className="flex items-center gap-1.5">
+              {(['green', 'yellow', 'red'] as PlayerColor[])
+                .filter(c => playerConfig[c] !== 'none')
+                .map(c => (
+                  <button
+                    key={`target-${c}`}
+                    type="button"
+                    onClick={() => setSelectedGiftTarget(c)}
+                    className={`flex-1 py-1 px-2 rounded-xl text-[10px] font-black border transition-colors cursor-pointer truncate ${
+                      selectedGiftTarget === c
+                        ? 'bg-amber-500/25 border-amber-400 text-amber-300'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {c === 'green' ? '🟢 ' : c === 'yellow' ? '🟡 ' : '🔴 '}
+                    {getPlayerName(c)}
+                  </button>
+                ))}
+            </div>
+
+            {/* Category Switcher: War vs Peace */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/80 rounded-xl border border-slate-800 text-xs font-bold">
               <button
                 type="button"
@@ -4961,7 +5052,7 @@ function LudoApp() {
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                💥 {lang === 'ar' ? 'مقالب وضرب ومرح' : 'Pranks & Slaps'}
+                ⚔️ {lang === 'ar' ? 'حرب (مقالب وضرب)' : 'War (Pranks)'}
               </button>
               <button
                 type="button"
@@ -4972,7 +5063,7 @@ function LudoApp() {
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                🌸 {lang === 'ar' ? 'تحيات وورود وود' : 'Greetings & Gifts'}
+                🕊️ {lang === 'ar' ? 'سلام (تحيات وود)' : 'Peace (Greetings)'}
               </button>
             </div>
 
@@ -5317,12 +5408,29 @@ function LudoApp() {
                     {selectedUserForModeration.isSpectator ? '🎙️ متفرج على المايك' : '⚔️ لاعب على الطاولة'}
                   </span>
                   <span>●</span>
-                  <span className={selectedUserForModeration.isMuted ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
-                    {selectedUserForModeration.isMuted ? '🔇 مكتوم الصوت' : '🎙️ المايك نشط'}
+                  <span className={`flex items-center gap-1 ${selectedUserForModeration.isMuted ? 'text-rose-400 font-bold' : 'text-emerald-400'}`}>
+                    <MicIcon muted={!!selectedUserForModeration.isMuted} className="w-3 h-3" />
+                    <span>{selectedUserForModeration.isMuted ? 'مكتوم المايك' : 'المايك نشط'}</span>
                   </span>
                 </div>
               </div>
             </div>
+
+            {/* 🕊️⚔️ Peace & War Gift Box Action on Profile */}
+            {selectedUserForModeration.seatColor && selectedUserForModeration.seatColor !== 'blue' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const seatCol = selectedUserForModeration.seatColor!;
+                  setSelectedUserForModeration(null);
+                  setSelectedGiftTarget(seatCol);
+                }}
+                className="w-full py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 border border-amber-300 shadow cursor-pointer active:scale-98"
+              >
+                <span>🕊️⚔️</span>
+                <span>{lang === 'ar' ? `سلام أو حرب مع ${selectedUserForModeration.name}` : `Peace or War with ${selectedUserForModeration.name}`}</span>
+              </button>
+            )}
 
             {/* 👤 Add Friend Action Button (إضافة صديق) */}
             {selectedUserForModeration.id !== userProfile?.id && (
@@ -5363,7 +5471,7 @@ function LudoApp() {
                         : 'bg-rose-950/60 border-rose-600 text-rose-300 hover:bg-rose-900/80'
                     }`}
                   >
-                    <span className="text-base">{selectedUserForModeration.isMuted ? '🎙️' : '🔇'}</span>
+                    <MicIcon muted={!selectedUserForModeration.isMuted} className="w-4 h-4" />
                     <span>{selectedUserForModeration.isMuted ? 'إلغاء الكتم' : 'كتم المايك'}</span>
                   </button>
 
@@ -5696,7 +5804,7 @@ function LudoApp() {
                     isMicOn ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' : 'bg-rose-950/80 text-rose-300 border-rose-800'
                   }`}
                 >
-                  <span>{isMicOn ? '🎙️' : '🔇'}</span>
+                  <MicIcon muted={!isMicOn} className="w-4 h-4" />
                   <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic Active') : (lang === 'ar' ? 'المايك مكتوم' : 'Mic Off')}</span>
                 </button>
 
