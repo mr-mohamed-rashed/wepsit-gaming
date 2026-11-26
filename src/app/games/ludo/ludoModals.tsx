@@ -292,6 +292,7 @@ export function WinnerModal({
   mySeatColor,
   getPlayerName,
   onPlayAgain,
+  onEndMatchStayInRoom,
   onExitToHub,
 }: {
   lang: string;
@@ -300,6 +301,7 @@ export function WinnerModal({
   mySeatColor: PlayerColor | null;
   getPlayerName: (c: PlayerColor) => string;
   onPlayAgain: () => void;
+  onEndMatchStayInRoom: () => void;
   onExitToHub: () => void;
 }) {
   if (!winner) return null;
@@ -326,18 +328,24 @@ export function WinnerModal({
               </div>
             </div>
           )}
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             <button
               onClick={onPlayAgain}
-              className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-98 transition-all cursor-pointer"
+              className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-98 transition-all cursor-pointer"
             >
-              {lang === 'ar' ? 'لعب جولة جديدة' : 'Play Again'}
+              {lang === 'ar' ? '🚀 بدء جيم جديد بالروم' : '🚀 Play New Match in Room'}
+            </button>
+            <button
+              onClick={onEndMatchStayInRoom}
+              className="w-full py-2.5 bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/40 font-black text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              {lang === 'ar' ? '🏰 إنهاء الجيم والبقاء في الروم' : '🏰 End Match & Stay in Room'}
             </button>
             <button
               onClick={onExitToHub}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl border border-slate-800 transition-colors cursor-pointer"
+              className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl border border-slate-800 transition-colors cursor-pointer"
             >
-              {lang === 'ar' ? 'العودة للرئيسية' : 'Exit to Hub'}
+              {lang === 'ar' ? '🚪 مغادرة الروم تماماً' : '🚪 Leave Room Completely'}
             </button>
           </div>
         </div>
@@ -513,12 +521,16 @@ export function RulesModal({ lang, open, onClose }: { lang: string; open: boolea
 export function ExitConfirmModal({
   lang,
   open,
+  matchActive,
   onStay,
+  onLeaveMatchOnly,
   onConfirm,
 }: {
   lang: string;
   open: boolean;
+  matchActive: boolean;
   onStay: () => void;
+  onLeaveMatchOnly: () => void;
   onConfirm: () => void;
 }) {
   if (!open) return null;
@@ -527,28 +539,43 @@ export function ExitConfirmModal({
       <div
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xs bg-slate-950 border-2 border-rose-500/60 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-center"
+        className="w-full max-w-xs bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-5 shadow-2xl flex flex-col gap-3 text-center"
       >
-        <h3 className="text-base font-black text-white">{lang === 'ar' ? 'تأكيد الخروج من المباراة' : 'Leave Match?'}</h3>
+        <h3 className="text-base font-black text-white">
+          {matchActive
+            ? (lang === 'ar' ? 'خروج من الجيم أم مغادرة الروم؟' : 'Leave Match or Room?')
+            : (lang === 'ar' ? 'مغادرة الغرفة' : 'Leave Room?')}
+        </h3>
         <p className="text-xs text-slate-300 leading-relaxed">
-          {lang === 'ar'
-            ? 'المباراة لا تزال جارية الآن! هل أنت متأكد أنك تريد مغادرة الطاولة والعودة إلى الصالة؟'
-            : 'The match is still in progress. Are you sure you want to leave this table?'}
+          {matchActive
+            ? (lang === 'ar'
+                ? 'يمكنك إنهاء/مغادرة الجيم فقط والبقاء داخل الروم على المايك والشات، أو الخروج من الروم بالكامل.'
+                : 'You can end/leave the active game while staying inside the open room, or leave the room completely.')
+            : (lang === 'ar' ? 'هل تريد مغادرة الروم والعودة للصالة؟' : 'Do you want to leave this room?')}
         </p>
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={onStay}
-            className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
-          >
-            {lang === 'ar' ? 'البقاء في اللعب' : 'Stay'}
-          </button>
+        <div className="flex flex-col gap-2">
+          {matchActive && (
+            <button
+              type="button"
+              onClick={onLeaveMatchOnly}
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow"
+            >
+              {lang === 'ar' ? '🛑 خروج من الجيم فقط (البقاء في الروم)' : '🛑 Leave Match Only (Stay in Room)'}
+            </button>
+          )}
           <button
             type="button"
             onClick={onConfirm}
-            className="py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-lg"
+            className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-lg"
           >
-            {lang === 'ar' ? 'نعم، خروج' : 'Yes, Exit'}
+            {lang === 'ar' ? '🚪 مغادرة الروم تماماً' : '🚪 Leave Room Completely'}
+          </button>
+          <button
+            type="button"
+            onClick={onStay}
+            className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
+          >
+            {lang === 'ar' ? 'إلغاء' : 'Cancel'}
           </button>
         </div>
       </div>

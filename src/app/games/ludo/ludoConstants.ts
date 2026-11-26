@@ -222,6 +222,7 @@ export interface PublicLudoRoom {
   id: string;
   nameAr: string;
   nameEn: string;
+  hostId?: string;
   hostName: string;
   hostAvatar: string;
   flag: string;
@@ -232,6 +233,9 @@ export interface PublicLudoRoom {
   prizeAmount: number;
   status: 'waiting' | 'in_game';
   modeType: 'classic' | 'blitz';
+  isOpen?: boolean;
+  roomLevel?: number;
+  bannedIds?: string[];
 }
 
 export const LUDO_PUBLIC_ROOMS: PublicLudoRoom[] = [

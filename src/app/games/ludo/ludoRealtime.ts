@@ -74,6 +74,10 @@ export type LudoRoomEvent =
       seatAssignments: Partial<Record<LudoTurnColor, { id: string; username: string; avatar: string; isHuman: boolean }>>;
     }
   | {
+      type: 'match_end';
+      senderId: string;
+    }
+  | {
       type: 'mic_request';
       senderId: string;
       username: string;

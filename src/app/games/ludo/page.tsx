@@ -113,7 +113,9 @@ function LudoApp() {
   // --- Room & Role Architecture (فصل إنشاء الغرفة عن الجيم) ---
   const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room'>('rooms');
   const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryIsHost ? queryRole : 'spectator');
-  const [gameStarted, setGameStarted] = useState<boolean>(false); // Starts from inside the room
+  const [gameStarted, setGameStarted] = useState<boolean>(false); // Inside room screen vs Lobby
+  const [matchActive, setMatchActive] = useState<boolean>(false); // Active Ludo match inside the open room
+  const [myOwnerRoom, setMyOwnerRoom] = useState<PersistentOwnerRoom | null>(null);
   const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
   const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>(() => {
     if (querySkin && ['classic', 'space', 'underwater', 'ancient'].includes(querySkin)) {
@@ -177,6 +179,7 @@ function LudoApp() {
   const lobbyRealtimeRef = useRef<{ publishHostedRoom: (r: LiveLobbyRoom | null) => Promise<void>; unsubscribe: () => void } | null>(null);
   const lastPeersSigRef = useRef<string>('');
   const rollDiceRef = useRef<(forcedVal?: number, fromRemote?: boolean) => void>(() => {});
+  const startMatchFromRoomRef = useRef<(broadcast?: boolean, overridePlayers?: 2 | 3 | 4) => void>(() => {});
   const [movingTokenId, setMovingTokenId] = useState<string | null>(null);
   const [moveStepTick, setMoveStepTick] = useState<number>(0);
   const [boardBurst, setBoardBurst] = useState<{
@@ -1065,6 +1068,57 @@ function LudoApp() {
     }
   };
 
+  const handleEndMatchStayInRoom = () => {
+    setShowExitConfirmModal(false);
+    try {
+      localStorage.removeItem('ludo_active_match_session');
+    } catch (e) {}
+
+    const canEndForTable = isHost || isDeputy || !isRealtimeConnected;
+    if (canEndForTable) {
+      setMatchActive(false);
+      setWinner(null);
+      setRollingDicePlayer(null);
+      setGameState('waiting_roll');
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
+      setFootprints([]);
+      if (isRealtimeConnected) {
+        void roomRealtimeRef.current?.sendEvent({
+          type: 'match_end',
+          senderId: userProfile?.id || 'host',
+        });
+      }
+      setStatusMessage(
+        lang === 'ar'
+          ? '🛑 تم إنهاء الجيم — الغرفة ما زالت مفتوحة (المايكات والشات والهدايا نشطة)!'
+          : '🛑 Match ended — room stays open (mics, chat & gifts active)!'
+      );
+    } else {
+      // Guest stepping out of current match stays in the open room as spectator on mic/chat
+      setUserRole('spectator');
+      setTableSeats((prev) => {
+        const next = { ...prev };
+        (Object.keys(next) as PlayerColor[]).forEach((k) => {
+          if (next[k]?.id === userProfile?.id) {
+            next[k] = null;
+          }
+        });
+        return next;
+      });
+      setPlayerConfig((prev) => {
+        const next = { ...prev };
+        if (mySeatColor) next[mySeatColor] = 'bot';
+        return next;
+      });
+      setStatusMessage(
+        lang === 'ar'
+          ? '🎙️ خرجت من الجيم الحالي وما زلت متواجداً داخل الغرفة المفتوحة كمتفرج!'
+          : '🎙️ Left the active match — you remain in the open room!'
+      );
+    }
+  };
+
   const returnToRoom = () => {
     try {
       localStorage.removeItem('ludo_active_match_session');
@@ -1087,13 +1141,14 @@ function LudoApp() {
       window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
     } else {
       setWinner(null);
+      setMatchActive(false);
       setGameStarted(false);
       setLobbyView('rooms');
     }
   };
 
   const handleExitGame = () => {
-    if (gameStarted && !winner) {
+    if (gameStarted && matchActive && !winner) {
       setShowExitConfirmModal(true);
       return;
     }
@@ -1192,43 +1247,56 @@ function LudoApp() {
   };
 
   const joinRoomFromList = async (room: PublicLudoRoom, role: 'player' | 'spectator') => {
-    const meta = await fetchRoomMetaFromServer(room.id);
     const myId = userProfile?.id || '12842582';
-    if (meta?.bannedIds?.includes(myId)) {
+    const meta = await fetchRoomMetaFromServer(room.id) || (room.id === getOwnerRoomId(myId) ? loadOwnerRoomLocal(myId) : null);
+    const amIHost =
+      room.hostId === myId ||
+      meta?.hostId === myId ||
+      room.id === getOwnerRoomId(myId);
+
+    if (meta?.bannedIds?.includes(myId) && !amIHost) {
       setStatusMessage(lang === 'ar' ? '⛔ أنت محظور من دخول هذه الغرفة!' : '⛔ You are banned from this room!');
       return;
     }
-    if (meta?.isOpen === false && room.hostName !== userProfile?.username) {
+    const effectiveIsOpen = meta?.isOpen ?? room.isOpen ?? true;
+    if (effectiveIsOpen === false && !amIHost) {
       setStatusMessage(lang === 'ar' ? '🔒 هذه الغرفة مقفلة مؤقتاً من صاحبها!' : '🔒 This room is temporarily locked!');
       return;
     }
 
-    const amIHost = (meta?.hostId && meta.hostId === myId) || room.id === getOwnerRoomId(myId);
+    const resolvedHostId = amIHost ? myId : (meta?.hostId || room.hostId || room.id);
     setRoomId(room.id);
-    setRoomTitle(lang === 'ar' ? room.nameAr : room.nameEn);
-    setRoomStake(room.entryFee);
-    setRoomHostId(meta?.hostId || room.id);
-    setRoomHostName(room.hostName);
-    setRoomHostAvatar(room.hostAvatar);
-    setPlayerCount(room.playerCount);
+    setRoomTitle(meta?.name || (lang === 'ar' ? room.nameAr : room.nameEn));
+    setRoomStake(meta?.stake ?? room.entryFee);
+    setRoomHostId(resolvedHostId);
+    setRoomHostName(amIHost ? (userProfile?.username || room.hostName) : room.hostName);
+    setRoomHostAvatar(amIHost ? (userProfile?.avatar_url || room.hostAvatar) : room.hostAvatar);
+    setPlayerCount(((meta?.maxPlayers as 2 | 4) || room.playerCount) || 4);
     setPieceCount(room.modeType === 'blitz' ? 2 : 4);
     setRoomDeputyId(null);
     setRoomXp(meta?.roomXp || 0);
     setRoomMatchesCount(meta?.roomMatches || 0);
     setBannedUserIds(meta?.bannedIds || []);
-    setIsRoomLocked(meta?.isOpen === false);
+    setIsRoomLocked(effectiveIsOpen === false);
     setHasMicPermission(amIHost);
     setIsMicMuted(!amIHost);
     setIsMicOn(amIHost);
-    setUserRole(amIHost ? role : 'spectator');
+    setUserRole(amIHost ? 'player' : role);
 
     setTableSeats({
-      blue: { id: meta?.hostId || room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
+      blue: {
+        id: resolvedHostId,
+        name: amIHost ? (userProfile?.username || room.hostName) : room.hostName,
+        avatar: amIHost ? (userProfile?.avatar_url || room.hostAvatar) : room.hostAvatar,
+        isBot: false,
+        isHost: true,
+        isDeputy: false,
+      },
       green: null,
       red: null,
       yellow: null,
     });
-    startMatchFromRoom();
+    startMatchFromRoom(false);
   };
 
   const handleCreateCustomRoom = (role: 'player' | 'spectator') => {
@@ -1250,6 +1318,7 @@ function LudoApp() {
       bannedIds: existing ? existing.bannedIds : [],
       updatedAt: Date.now(),
     };
+    setMyOwnerRoom(ownerRoom);
     void saveRoomMetaToServer(ownerRoom);
 
     setRoomId(ownerRoomId);
@@ -1351,7 +1420,9 @@ function LudoApp() {
     });
   };
 
-  const startMatchFromRoom = () => {
+  const startMatchFromRoom = (broadcast = true, overridePlayers?: 2 | 3 | 4) => {
+    const activePlayers = overridePlayers ?? playerCount;
+    if (overridePlayers) setPlayerCount(overridePlayers);
     const isSpectator = userRole === 'spectator';
     const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
       blue: 'none',
@@ -1360,7 +1431,7 @@ function LudoApp() {
       yellow: 'none',
     };
 
-    if (playerCount === 2) {
+    if (activePlayers === 2) {
       config.blue = tableSeats.blue ? (tableSeats.blue.isBot ? 'bot' : (tableSeats.blue.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
       config.green = tableSeats.green ? (tableSeats.green.isBot ? 'bot' : (tableSeats.green.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
       config.red = 'none';
@@ -1374,6 +1445,7 @@ function LudoApp() {
 
     setPlayerConfig(config);
     setGameStarted(true);
+    setMatchActive(true);
     setTurn('blue');
     setConsecutiveSixes(0);
     setExtraRolls(0);
@@ -1396,12 +1468,31 @@ function LudoApp() {
       return initial;
     });
 
+    if (broadcast && isRealtimeConnected && (isHost || isDeputy)) {
+      const colors: PlayerColor[] = activePlayers === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'match_start',
+        senderId: userProfile?.id || 'host',
+        playerCount: activePlayers,
+        piecesCount: pieceCount,
+        winRule,
+        activeColors: colors,
+        seatAssignments: {
+          ...(tableSeats.blue ? { blue: { id: tableSeats.blue.id, username: tableSeats.blue.name, avatar: tableSeats.blue.avatar, isHuman: !tableSeats.blue.isBot } } : {}),
+          ...(tableSeats.green ? { green: { id: tableSeats.green.id, username: tableSeats.green.name, avatar: tableSeats.green.avatar, isHuman: !tableSeats.green.isBot } } : {}),
+          ...(tableSeats.red ? { red: { id: tableSeats.red.id, username: tableSeats.red.name, avatar: tableSeats.red.avatar, isHuman: !tableSeats.red.isBot } } : {}),
+          ...(tableSeats.yellow ? { yellow: { id: tableSeats.yellow.id, username: tableSeats.yellow.name, avatar: tableSeats.yellow.avatar, isHuman: !tableSeats.yellow.isBot } } : {}),
+        },
+      });
+    }
+
     setStatusMessage(
       isSpectator
         ? (lang === 'ar' ? '🎙️ أنت في مقاعد المتفرجين على المايك! يمكنك إرسال الهدايا وتشجيع اللاعبين.' : '🎙️ You are spectating from the mic seats! Send gifts & cheer!')
         : (lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.')
     );
   };
+  startMatchFromRoomRef.current = startMatchFromRoom;
 
   // Auto start match when entering room directly with autoStart=true & check room ban/lock/level metadata
   useEffect(() => {
@@ -1618,6 +1709,23 @@ function LudoApp() {
           setRoomMicMode(ev.micMode);
           setRoomXp(ev.roomXp);
           setModeratorIds(ev.deputyIds);
+        } else if (ev.type === 'match_end') {
+          setMatchActive(false);
+          setWinner(null);
+          setRollingDicePlayer(null);
+          setGameState('waiting_roll');
+          isAnimatingRef.current = false;
+          setIsAnimating(false);
+          setFootprints([]);
+          setStatusMessage(
+            lang === 'ar'
+              ? '🛑 أنهى صاحب الغرفة الجيم — الغرفة ما زالت مفتوحة!'
+              : '🛑 Host ended the match — room stays open!'
+          );
+        } else if (ev.type === 'match_start') {
+          if (ev.piecesCount) setPieceCount(ev.piecesCount);
+          if (ev.winRule) setWinRule(ev.winRule);
+          startMatchFromRoomRef.current(false, (ev.playerCount as 2 | 4) || 4);
         }
       },
     });
@@ -1632,9 +1740,32 @@ function LudoApp() {
   // Global Lobby Live Rooms Subscription (active ONLY in rooms browser view to avoid background re-renders mid-match)
   useEffect(() => {
     if (gameStarted || lobbyView !== 'rooms') return;
+    const myId = userProfile?.id || '12842582';
+    const localOwner = loadOwnerRoomLocal(myId);
+    if (localOwner) setMyOwnerRoom(localOwner);
+    void fetchRoomMetaFromServer(getOwnerRoomId(myId)).then((remoteOwner) => {
+      if (remoteOwner) {
+        setMyOwnerRoom((prev) => ({
+          id: remoteOwner.id || getOwnerRoomId(myId),
+          name: remoteOwner.name || prev?.name || (lang === 'ar' ? `غرفة ${userProfile?.username || 'Ali'}` : `${userProfile?.username || 'Ali'}'s Room`),
+          hostId: remoteOwner.hostId || myId,
+          hostName: remoteOwner.hostName || userProfile?.username || 'Ali',
+          hostAvatar: remoteOwner.hostAvatar || userProfile?.avatar_url || '/laugh_emote.png',
+          stake: remoteOwner.stake ?? prev?.stake ?? 100,
+          maxPlayers: remoteOwner.maxPlayers ?? prev?.maxPlayers ?? 4,
+          isOpen: remoteOwner.isOpen ?? prev?.isOpen ?? true,
+          roomLevel: remoteOwner.roomLevel ?? prev?.roomLevel ?? 1,
+          roomXp: remoteOwner.roomXp ?? prev?.roomXp ?? 0,
+          roomMatches: remoteOwner.roomMatches ?? prev?.roomMatches ?? 0,
+          bannedIds: remoteOwner.bannedIds ?? prev?.bannedIds ?? [],
+          updatedAt: remoteOwner.updatedAt ?? Date.now(),
+        }));
+      }
+    });
+
     const lobby = subscribeLudoLobby(
       {
-        id: userProfile?.id || '12842582',
+        id: myId,
         username: userProfile?.username || 'Ali',
         avatar: userProfile?.avatar_url || '/laugh_emote.png',
       },
@@ -1681,13 +1812,13 @@ function LudoApp() {
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (gameState === 'waiting_roll' && playerConfig[turn] === 'human' && rollingDicePlayer === null && !winner) {
+    if (matchActive && gameState === 'waiting_roll' && playerConfig[turn] === 'human' && rollingDicePlayer === null && !winner) {
       timer = setTimeout(() => setShowDiceArrow(true), 100);
     } else {
       setShowDiceArrow(false);
     }
     return () => clearTimeout(timer);
-  }, [turn, gameState, playerConfig, rollingDicePlayer, winner]);
+  }, [matchActive, turn, gameState, playerConfig, rollingDicePlayer, winner]);
 
   // 💾 Restore Active Match Session on Mount (استئناف اللعبة عند الخروج أو التحديث)
   useEffect(() => {
@@ -1709,6 +1840,7 @@ function LudoApp() {
           if (data.roomHostId) setRoomHostId(data.roomHostId);
           if (data.roomHostName) setRoomHostName(data.roomHostName);
           setGameStarted(true);
+          setMatchActive(data.matchActive !== false);
           setStatusMessage(
             lang === 'ar'
               ? '🔄 تم استئناف اللعبة السابقة بنجاح من حيث توقفت!'
@@ -1723,8 +1855,8 @@ function LudoApp() {
 
   // 💾 Auto-save Active Match Session on state updates (skip intermediate step animations)
   useEffect(() => {
-    if (!gameStarted || winner || isAnimating) {
-      if (winner) {
+    if (!gameStarted || !matchActive || winner || isAnimating) {
+      if (winner || !matchActive) {
         try { localStorage.removeItem('ludo_active_match_session'); } catch (e) {}
       }
       return;
@@ -1732,6 +1864,7 @@ function LudoApp() {
     try {
       const session = {
         gameStarted: true,
+        matchActive: true,
         turn,
         gameState,
         tokens,
@@ -1749,7 +1882,7 @@ function LudoApp() {
     } catch (e) {
       console.warn('Could not save ludo match session', e);
     }
-  }, [gameStarted, winner, isAnimating, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
+  }, [gameStarted, matchActive, winner, isAnimating, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
 
   const getValidMoves = (playerColor: PlayerColor, diceVal: number) => {
     const validTokens: Token[] = [];
@@ -2006,7 +2139,7 @@ function LudoApp() {
   };
 
   const handleTokenClick = (token: Token, fromRemote = false, forcedDiceVal?: number) => {
-    if (gameState !== 'waiting_move' || token.color !== turn || isAnimatingRef.current || winner) return;
+    if (!matchActive || gameState !== 'waiting_move' || token.color !== turn || isAnimatingRef.current || winner) return;
     if (!fromRemote && isRealtimeConnected && playerConfig[token.color] !== 'bot' && mySeatColor !== token.color) return;
 
     const liveToken = tokens.find(t => t.id === token.id) || token;
@@ -2084,7 +2217,7 @@ function LudoApp() {
   handleTokenClickRef.current = handleTokenClick;
 
   const rollDice = (forcedVal?: number, fromRemote = false) => {
-    if (rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || winner) return;
+    if (!matchActive || rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || winner) return;
     if (!fromRemote && isRealtimeConnected && playerConfig[turn] !== 'bot' && mySeatColor !== turn) return;
 
     setRollingDicePlayer(turn);
@@ -2188,7 +2321,7 @@ function LudoApp() {
 
   // Bot autoplay logic (host-authoritative when room is online)
   useEffect(() => {
-    if (gameStarted && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && (!isRealtimeConnected || isHost)) {
+    if (gameStarted && matchActive && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && (!isRealtimeConnected || isHost)) {
       if (gameState === 'waiting_roll') {
         const timer = setTimeout(() => {
           rollDice();
@@ -2205,13 +2338,13 @@ function LudoApp() {
         return () => clearTimeout(timer);
       }
     }
-  }, [turn, rollingDicePlayer, gameStarted, playerConfig, gameState, diceValues, winner, isRealtimeConnected, isHost]);
+  }, [turn, rollingDicePlayer, gameStarted, matchActive, playerConfig, gameState, diceValues, winner, isRealtimeConnected, isHost]);
 
   // ⏱️ Fast Turn Countdown Timer (10 seconds total, CSS-driven 60fps ring + single timeout for zero React re-renders)
   const TURN_TIMEOUT_SECONDS = 10;
 
   useEffect(() => {
-    if (!gameStarted || winner || isAnimating) return;
+    if (!gameStarted || !matchActive || winner || isAnimating) return;
     const isMyControlledTurn =
       playerConfig[turn] === 'bot' ? (!isRealtimeConnected || isHost) : (!isRealtimeConnected || mySeatColor === turn);
     if (!isMyControlledTurn) return;
@@ -2238,7 +2371,7 @@ function LudoApp() {
     }, TURN_TIMEOUT_SECONDS * 1000);
 
     return () => clearTimeout(timeout);
-  }, [gameStarted, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, isHost, mySeatColor]);
+  }, [gameStarted, matchActive, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, isHost, mySeatColor]);
 
   const SpaceToken = useMemo(() => {
     const theme = selectedBoardSkin || 'classic';
@@ -3694,13 +3827,37 @@ function LudoApp() {
                 </button>
               </div>
 
-              {/* Active Live Rooms Grid (Live Supabase + Fallback Rooms) */}
+              {/* Active Live Rooms Grid (Your Persistent Room + Live Supabase + Fallback Rooms) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {[
-                  ...liveLobbyRooms.map((lr): PublicLudoRoom => ({
+                {(() => {
+                  const myId = userProfile?.id || '12842582';
+                  const ownerRoomCard: PublicLudoRoom | null = myOwnerRoom
+                    ? {
+                        id: myOwnerRoom.id,
+                        nameAr: myOwnerRoom.name,
+                        nameEn: myOwnerRoom.name,
+                        hostId: myOwnerRoom.hostId,
+                        hostName: myOwnerRoom.hostName,
+                        hostAvatar: myOwnerRoom.hostAvatar || '/laugh_emote.png',
+                        flag: '👑',
+                        playerCount: (myOwnerRoom.maxPlayers as 2 | 4) || 4,
+                        currentPlayers: 1,
+                        spectatorsCount: 0,
+                        entryFee: myOwnerRoom.stake,
+                        prizeAmount: myOwnerRoom.stake * ((myOwnerRoom.maxPlayers as number) === 2 ? 2 : 4),
+                        status: myOwnerRoom.isOpen === false ? 'waiting' : 'waiting',
+                        modeType: 'classic',
+                        isOpen: myOwnerRoom.isOpen,
+                        roomLevel: myOwnerRoom.roomLevel || 1,
+                        bannedIds: myOwnerRoom.bannedIds || [],
+                      }
+                    : null;
+
+                  const mappedLive: PublicLudoRoom[] = liveLobbyRooms.map((lr): PublicLudoRoom => ({
                     id: lr.id,
                     nameAr: lr.name,
                     nameEn: lr.name,
+                    hostId: lr.hostId,
                     hostName: lr.hostName,
                     hostAvatar: lr.hostAvatar || '/laugh_emote.png',
                     flag: '🌐',
@@ -3711,102 +3868,133 @@ function LudoApp() {
                     prizeAmount: lr.stake * (lr.maxPlayers === 2 ? 2 : 4),
                     status: lr.status,
                     modeType: lr.piecesCount === 2 ? 'blitz' : 'classic',
-                  })),
-                  ...LUDO_PUBLIC_ROOMS.filter((fr) => !liveLobbyRooms.some((lr) => lr.id === fr.id)),
-                ].map((room) => {
-                  const isFull = room.currentPlayers >= room.playerCount;
-                  const isInGame = room.status === 'in_game';
-                  return (
-                    <div
-                      key={room.id}
-                      className={`p-4 rounded-2xl flex flex-col justify-between gap-3 transition-all shadow-md border ${
-                        isInGame
-                          ? 'bg-purple-950/30 border-purple-500/50 hover:border-purple-400/80'
-                          : 'bg-slate-900/85 border-amber-500/35 hover:border-amber-400/70'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={room.hostAvatar}
-                            alt={room.hostName}
-                            className={`w-10 h-10 rounded-full border bg-slate-900 object-cover ${
-                              isInGame ? 'border-purple-400/50' : 'border-amber-400/50'
+                  }));
+
+                  const mergedRooms: PublicLudoRoom[] = [
+                    ...(ownerRoomCard ? [ownerRoomCard] : []),
+                    ...mappedLive.filter((lr) => lr.id !== ownerRoomCard?.id),
+                    ...LUDO_PUBLIC_ROOMS.filter(
+                      (fr) => fr.id !== ownerRoomCard?.id && !mappedLive.some((lr) => lr.id === fr.id)
+                    ),
+                  ];
+
+                  return mergedRooms.map((room) => {
+                    const amIOwnerCard = room.hostId === myId || room.id === getOwnerRoomId(myId);
+                    const isFull = room.currentPlayers >= room.playerCount;
+                    const isInGame = room.status === 'in_game';
+                    return (
+                      <div
+                        key={room.id}
+                        className={`p-4 rounded-2xl flex flex-col justify-between gap-3 transition-all shadow-md border ${
+                          amIOwnerCard
+                            ? 'bg-emerald-950/35 border-emerald-400/70 hover:border-emerald-300'
+                            : isInGame
+                            ? 'bg-purple-950/30 border-purple-500/50 hover:border-purple-400/80'
+                            : 'bg-slate-900/85 border-amber-500/35 hover:border-amber-400/70'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={room.hostAvatar}
+                              alt={room.hostName}
+                              className={`w-10 h-10 rounded-full border bg-slate-900 object-cover ${
+                                amIOwnerCard ? 'border-emerald-400/70' : isInGame ? 'border-purple-400/50' : 'border-amber-400/50'
+                              }`}
+                            />
+                            <div>
+                              <h4 className="text-xs font-black text-white flex items-center gap-1.5 flex-wrap">
+                                <span>{lang === 'ar' ? room.nameAr : room.nameEn}</span>
+                                <span>{room.flag}</span>
+                                {amIOwnerCard && (
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-black text-[9px] border border-emerald-400/40">
+                                    👑 {lang === 'ar' ? 'غرفتك الدائمة' : 'Your Room'}
+                                  </span>
+                                )}
+                              </h4>
+                              <p className="text-[10px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                                <span>{lang === 'ar' ? 'المضيف:' : 'Host:'} {room.hostName}</span>
+                                {room.roomLevel && (
+                                  <span className="px-1.5 rounded bg-amber-500/15 text-amber-300 font-black text-[9px] border border-amber-400/30">
+                                    ⭐ Lv.{room.roomLevel}
+                                  </span>
+                                )}
+                                {room.isOpen === false && (
+                                  <span className="px-1.5 rounded bg-rose-500/20 text-rose-300 font-black text-[9px] border border-rose-400/40">
+                                    🔒 {lang === 'ar' ? 'مقفلة مؤقتاً' : 'Locked'}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[9px] font-black px-2 py-0.5 rounded-full border shrink-0 ${
+                              isInGame
+                                ? 'bg-purple-500/15 border-purple-400/40 text-purple-300'
+                                : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                             }`}
-                          />
+                          >
+                            {isInGame
+                              ? (lang === 'ar' ? 'المباراة جارية 🔥' : 'In Game 🔥')
+                              : (lang === 'ar' ? 'بانتظار لاعبين ⏳' : 'Waiting ⏳')}
+                          </span>
+                        </div>
+
+                        {/* Room Stats */}
+                        <div className="grid grid-cols-3 gap-2 bg-black/40 p-2 rounded-xl text-center text-[10px]">
                           <div>
-                            <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                              <span>{lang === 'ar' ? room.nameAr : room.nameEn}</span>
-                              <span>{room.flag}</span>
-                            </h4>
-                            <p className="text-[10px] text-slate-400">
-                              {lang === 'ar' ? 'المضيف:' : 'Host:'} {room.hostName}
-                            </p>
+                            <span className="text-slate-500 block">{lang === 'ar' ? 'اللاعبين' : 'Players'}</span>
+                            <span className={`font-black ${isInGame ? 'text-purple-300' : 'text-emerald-400'}`}>
+                              {room.currentPlayers}/{room.playerCount}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">{lang === 'ar' ? 'المتفرجين' : 'Spectators'}</span>
+                            <span className="font-black text-amber-300">
+                              🎙️ {room.spectatorsCount}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">{lang === 'ar' ? 'الجائزة' : 'Prize'}</span>
+                            <span className="font-black text-yellow-400">
+                              {room.prizeAmount} 🪙
+                            </span>
                           </div>
                         </div>
-                        <span
-                          className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
-                            isInGame
-                              ? 'bg-purple-500/15 border-purple-400/40 text-purple-300'
-                              : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
-                          }`}
-                        >
-                          {isInGame
-                            ? (lang === 'ar' ? 'المباراة جارية 🔥' : 'In Game 🔥')
-                            : (lang === 'ar' ? 'بانتظار لاعبين ⏳' : 'Waiting ⏳')}
-                        </span>
-                      </div>
 
-                      {/* Room Stats */}
-                      <div className="grid grid-cols-3 gap-2 bg-black/40 p-2 rounded-xl text-center text-[10px]">
-                        <div>
-                          <span className="text-slate-500 block">{lang === 'ar' ? 'اللاعبين' : 'Players'}</span>
-                          <span className={`font-black ${isInGame ? 'text-purple-300' : 'text-emerald-400'}`}>
-                            {room.currentPlayers}/{room.playerCount}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block">{lang === 'ar' ? 'المتفرجين' : 'Spectators'}</span>
-                          <span className="font-black text-amber-300">
-                            🎙️ {room.spectatorsCount}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block">{lang === 'ar' ? 'الجائزة' : 'Prize'}</span>
-                          <span className="font-black text-yellow-400">
-                            {room.prizeAmount} 🪙
-                          </span>
+                        {/* Unified Single Action Button */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const isMatchPlaying = room.status === 'in_game';
+                              const roleToAssign = amIOwnerCard ? 'player' : (isMatchPlaying || isFull) ? 'spectator' : 'player';
+                              void joinRoomFromList(room, roleToAssign);
+                            }}
+                            className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow active:scale-98 ${
+                              amIOwnerCard
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 border border-emerald-300 shadow-emerald-950/40'
+                                : isInGame || isFull
+                                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
+                                : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
+                            }`}
+                          >
+                            <span>{amIOwnerCard ? '👑' : isInGame || isFull ? '🎙️' : '🚪'}</span>
+                            <span>
+                              {amIOwnerCard
+                                ? (lang === 'ar' ? `ادخل غرفتك الآن (أنت المالك - ${room.entryFee} 🪙)` : `Enter Your Room (Owner - ${room.entryFee} 🪙)`)
+                                : isInGame
+                                ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
+                                : isFull
+                                ? (lang === 'ar' ? 'دخول الغرفة (المقاعد ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
+                                : (lang === 'ar' ? `دخول الغرفة (الرهان: ${room.entryFee} 🪙)` : `Enter Room (${room.entryFee} 🪙)`)}
+                            </span>
+                          </button>
                         </div>
                       </div>
-
-                      {/* Unified Single Action Button: Purple when In Game, Gold when Waiting */}
-                      <div className="pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const isMatchPlaying = room.status === 'in_game';
-                            const roleToAssign = (isMatchPlaying || isFull) ? 'spectator' : 'player';
-                            joinRoomFromList(room, roleToAssign);
-                          }}
-                          className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow active:scale-98 ${
-                            isInGame || isFull
-                              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
-                              : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
-                          }`}
-                        >
-                          <span>{isInGame || isFull ? '🎙️' : '🚪'}</span>
-                          <span>
-                            {isInGame
-                              ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
-                              : isFull
-                              ? (lang === 'ar' ? 'دخول الغرفة (المقاعد ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
-                              : (lang === 'ar' ? `دخول الغرفة (الرهان: ${room.entryFee} 🪙)` : `Enter Room (${room.entryFee} 🪙)`)}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -4222,6 +4410,18 @@ function LudoApp() {
                 {statusMessage}
               </div>
 
+              {/* End Ongoing Match (stay in open room) for Host / Admin */}
+              {canAccessSettings && matchActive && !winner && (
+                <button
+                  type="button"
+                  onClick={handleEndMatchStayInRoom}
+                  className="px-2 py-1 rounded-full bg-rose-600/85 hover:bg-rose-500 text-white font-black text-[9px] border border-rose-300/40 shadow shrink-0 cursor-pointer active:scale-95"
+                  title={lang === 'ar' ? 'إنهاء الجيم والبقاء في الروم' : 'End Match (Stay in Room)'}
+                >
+                  🛑 {lang === 'ar' ? 'إنهاء الجيم' : 'End Match'}
+                </button>
+              )}
+
               {/* Join Board Button (shown when guest got mic permission or room allows joining play) */}
               {hasMicPermission && userRole === 'spectator' && !winner && (
                 <button
@@ -4305,6 +4505,55 @@ function LudoApp() {
             <div className="absolute inset-0 w-full h-full pointer-events-none z-30">
               {renderTokensLayer()}
             </div>
+
+            {/* Idle Room Overlay when no match is active — room stays open for voice mics, chat & gifts */}
+            {!matchActive && !winner && (
+              <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="absolute inset-0 z-40 rounded-2xl bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-5 text-center gap-3">
+                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-black">
+                  🏰 {roomTitle} • ⭐ Lv.{calculateRoomLevel(roomXp).level}
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-white">
+                  {lang === 'ar' ? 'الغرفة مفتوحة — الطاولة بانتظار بدء جيم جديد' : 'Room Open — Ready for a New Match'}
+                </h3>
+                <p className="text-[11px] text-slate-300 max-w-xs leading-relaxed">
+                  {lang === 'ar'
+                    ? 'تم إنهاء الجيم السابق مع إبقاء الغرفة مفتوحة. المايكات والشات والهدايا تعمل بشكل طبيعي.'
+                    : 'Previous match ended while the room stays open. Mics, chat & gifts remain live.'}
+                </p>
+
+                {canAccessSettings ? (
+                  <div className="flex flex-col items-center gap-2.5 w-full max-w-[260px] pt-1">
+                    <div className="flex items-center gap-2 w-full">
+                      {[2, 4].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setPlayerCount(cnt as 2 | 4)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                            playerCount === cnt
+                              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                              : 'bg-slate-900 text-slate-300 border-white/15 hover:border-amber-400/50'
+                          }`}
+                        >
+                          {cnt === 2 ? (lang === 'ar' ? '⚔️ 2 لاعبين' : '⚔️ 2 Players') : (lang === 'ar' ? '👑 4 لاعبين' : '👑 4 Players')}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startMatchFromRoom(true)}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg cursor-pointer active:scale-95"
+                    >
+                      🚀 {lang === 'ar' ? 'بدء جيم جديد بالروم الآن' : 'Start New Match in Room'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="px-4 py-2 rounded-xl bg-slate-900/90 border border-amber-400/30 text-amber-200 text-xs font-bold">
+                    ⏳ {lang === 'ar' ? 'بانتظار صاحب الغرفة أو المشرف لبدء الجيم الجديد...' : 'Waiting for Host/Admin to launch a new match...'}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 3. CLEAN OPEN CHAT TICKER & BOTTOM TOOLBAR (Matching Reference Layout) */}
@@ -4550,13 +4799,9 @@ function LudoApp() {
         winReward={winReward}
         mySeatColor={mySeatColor}
         getPlayerName={getPlayerName}
-        onPlayAgain={resetGame}
-        onExitToHub={() => {
-          if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
-          }
-          resetGame();
-        }}
+        onEndMatchStayInRoom={handleEndMatchStayInRoom}
+        onPlayAgain={() => startMatchFromRoom(true)}
+        onExitToHub={confirmExitGame}
       />
 
       <QuickChatModal
@@ -5048,7 +5293,9 @@ function LudoApp() {
       <ExitConfirmModal
         lang={lang}
         open={showExitConfirmModal}
+        matchActive={matchActive}
         onStay={() => setShowExitConfirmModal(false)}
+        onLeaveMatchOnly={handleEndMatchStayInRoom}
         onConfirm={confirmExitGame}
       />
 

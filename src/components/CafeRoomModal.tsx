@@ -7,6 +7,7 @@ import {
   LiveLobbyRoom,
   getOwnerRoomId,
   loadOwnerRoomLocal,
+  fetchRoomMetaFromServer,
   saveRoomMetaToServer,
 } from '@/app/games/ludo/ludoRealtime';
 
@@ -510,6 +511,7 @@ export default function CafeRoomModal({
 
   useEffect(() => {
     if (gameKey !== 'ludo') return;
+    const ownerRoomId = getOwnerRoomId(profile.id);
     const savedOwner = loadOwnerRoomLocal(profile.id);
     if (savedOwner) {
       setMyPermanentRoom({
@@ -528,9 +530,31 @@ export default function CafeRoomModal({
         isOpen: savedOwner.isOpen,
         roomLevel: savedOwner.roomLevel,
         bannedIds: savedOwner.bannedIds,
-        hostId: savedOwner.hostId,
+        hostId: profile.id,
       });
     }
+    void fetchRoomMetaFromServer(ownerRoomId).then((remote) => {
+      if (remote && remote.id) {
+        setMyPermanentRoom({
+          id: remote.id,
+          nameAr: remote.name || (lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`),
+          nameEn: remote.name || `${profile.username}'s Room 👑`,
+          hostName: remote.hostName || profile.username,
+          hostAvatar: remote.hostAvatar || profile.avatar_url || '',
+          flag: '👑',
+          playerCount: remote.maxPlayers || 4,
+          currentPlayers: 1,
+          spectatorsCount: 0,
+          entryFee: remote.stake || 50,
+          prizeAmount: (remote.stake || 50) * ((remote.maxPlayers || 4) === 2 ? 1.9 : 3.8),
+          status: 'waiting',
+          isOpen: remote.isOpen !== false,
+          roomLevel: remote.roomLevel || 1,
+          bannedIds: remote.bannedIds || [],
+          hostId: profile.id,
+        });
+      }
+    });
     const sub = subscribeLudoLobby(
       {
         id: profile.id,
@@ -921,13 +945,17 @@ export default function CafeRoomModal({
                       ]
                     : meta.activeTables
                   ).map((room) => {
+                    const amIOwnerCard =
+                      gameKey === 'ludo' && (room.hostId === profile.id || room.id === getOwnerRoomId(profile.id));
                     const isFull = room.currentPlayers >= room.playerCount;
                     const isInGame = room.status === 'in_game';
                     return (
                       <div
                         key={room.id}
                         className={`rounded-2xl p-3.5 space-y-3 transition-all shadow-md group relative overflow-hidden border ${
-                          isInGame
+                          amIOwnerCard
+                            ? 'bg-emerald-950/35 border-emerald-400/70 hover:border-emerald-300'
+                            : isInGame
                             ? 'bg-purple-950/25 border-purple-500/50 hover:border-purple-400/80'
                             : 'bg-slate-950/80 border-amber-500/35 hover:border-amber-400/70'
                         }`}
@@ -943,9 +971,14 @@ export default function CafeRoomModal({
                               }`}
                             />
                             <div>
-                              <div className="text-xs font-bold text-white flex items-center gap-1">
+                              <div className="text-xs font-bold text-white flex items-center gap-1 flex-wrap">
                                 <span>{lang === 'ar' ? room.nameAr : room.nameEn}</span>
                                 <span>{room.flag}</span>
+                                {amIOwnerCard && (
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-black text-[9px] border border-emerald-400/40">
+                                    👑 {lang === 'ar' ? 'غرفتك الدائمة' : 'Your Room'}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
                                 <span>{lang === 'ar' ? `المضيف: ${room.hostName}` : `Host: ${room.hostName}`}</span>
@@ -996,20 +1029,24 @@ export default function CafeRoomModal({
                           </div>
                         </div>
 
-                        {/* Single Unified Action Button: Purple when In Game, Gold when Waiting */}
+                        {/* Single Unified Action Button: Emerald for Owner, Purple when In Game, Gold when Waiting */}
                         <div className="pt-1">
                           <button
                             type="button"
                             onClick={() => handleJoinActiveRoom(room)}
                             className={`w-full py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 ${
-                              isInGame || isFull
+                              amIOwnerCard
+                                ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 border border-emerald-300 shadow-emerald-950/40'
+                                : isInGame || isFull
                                 ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 shadow-purple-950/40'
                                 : 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-amber-950/40'
                             }`}
                           >
-                            <span>{isInGame || isFull ? '🎙️' : '🚪'}</span>
+                            <span>{amIOwnerCard ? '👑' : isInGame || isFull ? '🎙️' : '🚪'}</span>
                             <span>
-                              {isInGame
+                              {amIOwnerCard
+                                ? (lang === 'ar' ? 'ادخل غرفتك الآن (أنت صاحب الغرفة)' : 'Enter Your Room (Owner)')
+                                : isInGame
                                 ? (lang === 'ar' ? 'دخول الغرفة (المباراة جارية - متفرج حتى الجيم الجديد)' : 'Enter Room (In Game - Spectate)')
                                 : isFull
                                 ? (lang === 'ar' ? 'دخول الغرفة (طاولة اللعب ممتلئة - متفرج)' : 'Enter Room (Seats Full - Spectate)')
