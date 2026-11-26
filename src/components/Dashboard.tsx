@@ -501,10 +501,23 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
       return;
     }
 
-    // Billiards & Arcade Games use standard stake / arcade modal
-    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'billiards';
-    if (gameId === 'billiards-game') resolvedMode = 'billiards';
-    else if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
+    if (gameId === 'billiards-game') {
+      setSelectedStakeConfig(null);
+      setPendingGameMode('billiards');
+      setActiveGame('billiards');
+      setShowGameModal(true);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('active_game_session', JSON.stringify({
+          game: 'billiards',
+          timestamp: Date.now(),
+        }));
+      }
+      return;
+    }
+
+    // Arcade Games use standard stake / arcade modal
+    let resolvedMode: 'chess' | 'estimation' | 'uno' | 'cyber-arena' | 'domino' | 'backgammon' | 'fighter' | 'ludo' | 'billiards' = 'cyber-arena';
+    if (gameId === 'cyber-arena') resolvedMode = 'cyber-arena';
     else if (gameId === 'fighter-game') resolvedMode = 'fighter';
 
     const matched = GAMES_CONFIG.find((g) => g.id === gameId);
