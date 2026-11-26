@@ -890,6 +890,7 @@ function LudoApp() {
   });
   const roomRealtimeRef = useRef<LudoRoomHandle | null>(null);
   const lobbyRealtimeRef = useRef<{ publishHostedRoom: (r: LiveLobbyRoom | null) => Promise<void>; unsubscribe: () => void } | null>(null);
+  const lastPeersSigRef = useRef<string>('');
   const rollDiceRef = useRef<(forcedVal?: number, fromRemote?: boolean) => void>(() => {});
   const [movingTokenId, setMovingTokenId] = useState<string | null>(null);
   const [moveStepTick, setMoveStepTick] = useState<number>(0);
@@ -1902,6 +1903,9 @@ function LudoApp() {
         setVoiceStatus(status);
       },
       onPresenceSync: (peers) => {
+        const sig = peers.map((p) => `${p.id}:${p.isMuted ? 1 : 0}`).join('|');
+        if (sig === lastPeersSigRef.current) return;
+        lastPeersSigRef.current = sig;
         setRealtimePeers(peers);
         if (peers.length > 1) {
           const seatOrder: PlayerColor[] = playerCount === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
@@ -1995,8 +1999,9 @@ function LudoApp() {
     };
   }, [roomId, userProfile?.id]);
 
-  // Global Lobby Live Rooms Subscription
+  // Global Lobby Live Rooms Subscription (active ONLY in rooms browser view to avoid background re-renders mid-match)
   useEffect(() => {
+    if (gameStarted || lobbyView !== 'rooms') return;
     const lobby = subscribeLudoLobby(
       {
         id: userProfile?.id || '12842582',
@@ -2018,8 +2023,8 @@ function LudoApp() {
         maxPlayers: playerCount,
         piecesCount: pieceCount,
         winRule,
-        status: gameStarted ? 'in_game' : 'waiting',
-        currentPlayers: Math.max(1, realtimePeers.length || 1),
+        status: 'waiting',
+        currentPlayers: 1,
       });
     }
 
@@ -2027,7 +2032,7 @@ function LudoApp() {
       lobby.unsubscribe();
       lobbyRealtimeRef.current = null;
     };
-  }, [userProfile?.id, roomId, gameStarted]);
+  }, [userProfile?.id, roomId, gameStarted, lobbyView]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
 

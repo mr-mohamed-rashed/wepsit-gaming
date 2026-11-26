@@ -74,26 +74,55 @@ type RtcSignalPayload =
   | { type: 'rtc_ice'; fromId: string; toId: string; candidate: RTCIceCandidateInit };
 
 let cachedClient: SupabaseClient | null = null;
+const REALTIME_INSTANCE_KEY =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+
+function sanitizeSupabaseUrl(rawUrl: string): string | null {
+  let url = rawUrl.trim().replace(/^["']|["']$/g, '');
+  if (!url || url === 'YOUR_SUPABASE_URL' || url.includes('placeholder') || url.startsWith('eyJ')) return null;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (url.includes('supabase.co')) url = `https://${url}`;
+    else return null;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
 
 export function getLudoSupabaseClient(): SupabaseClient | null {
   if (cachedClient) return cachedClient;
 
-  const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const cleanedUrl = sanitizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+  const envKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim().replace(/^["']|["']$/g, '');
 
   const isPlaceholder =
-    !envUrl ||
+    !cleanedUrl ||
     !envKey ||
-    envUrl.includes('placeholder') ||
+    envKey === 'YOUR_SUPABASE_ANON_KEY' ||
     envKey.includes('placeholder');
 
   if (isPlaceholder) return null;
 
-  cachedClient = createClient(envUrl, envKey, {
-    realtime: {
-      params: { eventsPerSecond: 20 },
-    },
-  });
+  try {
+    cachedClient = createClient(cleanedUrl, envKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: `ludo-rt-${REALTIME_INSTANCE_KEY}`,
+      },
+      realtime: {
+        params: { eventsPerSecond: 15 },
+      },
+    });
+  } catch {
+    return null;
+  }
   return cachedClient;
 }
 
@@ -168,7 +197,7 @@ export function subscribeLudoLobby(
   void fetchDbRooms();
 
   const channel: RealtimeChannel = client.channel('ludo-lobby', {
-    config: { presence: { key: myInfo.id } },
+    config: { presence: { key: `${myInfo.id}-${REALTIME_INSTANCE_KEY}` } },
   });
 
   channel

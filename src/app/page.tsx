@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Profile, DailyQuest, supabaseClient } from '@/lib/supabase';
 import { getCurrentUserSession, AuthResponse } from './actions/authActions';
 import { fetchDailyCheck } from './actions/gameActions'; // Load standard daily check helper
@@ -13,6 +13,7 @@ export default function Home() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [dailyQuest, setDailyQuest] = useState<DailyQuest | null>(null);
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' | 'warning' }[]>([]);
+  const loadedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const savedLang = localStorage.getItem('lang') as 'ar' | 'en';
@@ -33,11 +34,12 @@ export default function Home() {
     }, 5000);
   };
 
-  const loadSession = async () => {
+  const loadSession = async (silent = false) => {
     try {
-      setSessionLoading(true);
+      if (!silent) setSessionLoading(true);
       const res = await getCurrentUserSession();
       if (res.success && res.profile) {
+        loadedUserIdRef.current = res.profile.id;
         setProfile(res.profile);
         const quest = await fetchDailyCheck(res.profile.id);
         // Cast standard daily check to daily quest shape
@@ -47,24 +49,28 @@ export default function Home() {
           matches_played_today: (quest as any).matches_played_today ?? 0,
         });
       } else {
+        loadedUserIdRef.current = null;
         setProfile(null);
         setDailyQuest(null);
       }
     } catch (err: any) {
       console.error('Failed to load user session:', err);
     } finally {
-      setSessionLoading(false);
+      if (!silent) setSessionLoading(false);
     }
   };
 
   useEffect(() => {
-    loadSession();
+    void loadSession(false);
 
     if (supabaseClient) {
       const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event, session) => {
-        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
-          await loadSession();
+        if (event === 'SIGNED_IN' && session?.user) {
+          if (loadedUserIdRef.current !== session.user.id) {
+            await loadSession(true);
+          }
         } else if (event === 'SIGNED_OUT') {
+          loadedUserIdRef.current = null;
           setProfile(null);
           setDailyQuest(null);
         }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Profile, DailyQuest } from '@/lib/supabase';
 import { logoutCurrentUser } from '@/app/actions/authActions';
 import { processEstimationBuyIn, processEstimationResult } from '@/app/actions/gameActions';
@@ -185,26 +185,23 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   useEffect(() => {
     const handleGameMessage = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== 'object') return;
+      const currentProfile = latestProfileRef.current;
       if (event.data.type === 'CLOSE_GAME') {
         handleCloseGame();
       } else if (event.data.type === 'LUDO_COINS_SYNC') {
-        const syncedCoins = typeof event.data.newCoins === 'number' ? Math.max(0, event.data.newCoins) : profile.gold_coins;
+        const syncedCoins = typeof event.data.newCoins === 'number' ? Math.max(0, event.data.newCoins) : currentProfile.gold_coins;
         const mr = event.data.matchResult;
         onUpdate(
           {
-            ...profile,
+            ...currentProfile,
             gold_coins: syncedCoins,
-            wins: mr?.isWinner ? profile.wins + 1 : profile.wins,
-            losses: mr && !mr.isWinner ? profile.losses + 1 : profile.losses,
+            wins: mr?.isWinner ? currentProfile.wins + 1 : currentProfile.wins,
+            losses: mr && !mr.isWinner ? currentProfile.losses + 1 : currentProfile.losses,
           },
           dailyQuest
         );
-      } else if (event.data.type === 'LUDO_GAME_OVER' || event.data.type === 'GAME_OVER') {
+      } else if (event.data.type === 'LUDO_GAME_OVER') {
         if (event.data.isHuman && event.data.coins > 0) {
-          if (event.data.type === 'GAME_OVER') {
-            const updatedCoins = profile.gold_coins + event.data.coins;
-            onUpdate({ ...profile, gold_coins: updatedCoins, wins: profile.wins + 1 }, dailyQuest);
-          }
           addToast(
             lang === 'ar'
               ? `🎉 مبروك! حققت الفوز وحصلت على ${event.data.coins} عملة ذهبية!`
@@ -216,7 +213,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     };
     window.addEventListener('message', handleGameMessage);
     return () => window.removeEventListener('message', handleGameMessage);
-  }, [profile, dailyQuest, onUpdate, addToast, lang]);
+  }, [dailyQuest, onUpdate, addToast, lang]);
 
   // Save XP to localStorage helper
   const saveXpData = (updatedXp: Record<string, number>) => {
@@ -487,6 +484,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   };
 
   const launchGameMode = (gameId: string) => {
+    setActiveDrawerTab(null);
     // 6 Cafe Social Games (القهوة البلدي: لودو، دومينو، طاولة، شطرنج، أونو، استميشن)
     const cafeMap: Record<string, CafeGameKey> = {
       'ludo-game': 'ludo',
@@ -809,6 +807,62 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
     domino: '/domino_card_v2.png',
   };
   const activeCard = gameCardsMap[activeGame || 'domino'];
+  const latestProfileRef = useRef(profile);
+  latestProfileRef.current = profile;
+
+  // Lock iframe URL while modal stays open so coin syncs / profile updates never force-reload the active game!
+  const activeIframeSrc = useMemo(() => {
+    if (!showGameModal) return '';
+    const p = latestProfileRef.current;
+
+    if (activeGame === 'ludo') {
+      const role = cafeRoomConfig?.role || ludoRoomConfig?.role || 'player';
+      const players = cafeRoomConfig?.playerCount || ludoRoomConfig?.playerCount || 4;
+      const pieces = ludoRoomConfig?.pieceCount || 4;
+      const winRule = ludoRoomConfig?.winRule || 'all';
+      const stake = cafeRoomConfig?.entryFee || ludoRoomConfig?.entryFee || 50;
+      const roomIdParam = encodeURIComponent(cafeRoomConfig?.roomId || ludoRoomConfig?.roomId || `ludo-${p.id.slice(0, 6)}`);
+      const roomName = encodeURIComponent(cafeRoomConfig?.roomName || ludoRoomConfig?.roomName || 'Ludo Room');
+      const isHost = cafeRoomConfig?.isHost !== undefined ? cafeRoomConfig.isHost : true;
+      const hostId = encodeURIComponent(cafeRoomConfig?.hostId || p.id);
+      const hostName = encodeURIComponent(cafeRoomConfig?.hostName || p.username);
+      const hostAvatar = encodeURIComponent(cafeRoomConfig?.hostAvatar || p.avatar_url || '');
+      return `/games/ludo?userId=${p.id}&username=${encodeURIComponent(p.username)}&avatar=${encodeURIComponent(p.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomId=${roomIdParam}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}&goldCoins=${p.gold_coins}`;
+    }
+
+    if (['domino', 'backgammon', 'chess', 'uno', 'estimation'].includes(activeGame)) {
+      const role = cafeRoomConfig?.role || 'player';
+      const players = cafeRoomConfig?.playerCount || 4;
+      const stake = cafeRoomConfig?.entryFee || 50;
+      const prize = cafeRoomConfig?.prizeAmount || (stake * (players === 2 ? 1.9 : 3.8));
+      const roomName = encodeURIComponent(cafeRoomConfig?.roomName || 'Cafe Table');
+      const matched = GAMES_CONFIG.find(g => g.key === activeGame);
+      const base = matched?.embedUrl || `/games/${activeGame}`;
+      const sep = base.includes('?') ? '&' : '?';
+      return `${base}${sep}userId=${p.id}&username=${encodeURIComponent(p.username)}&avatar=${encodeURIComponent(p.avatar_url || '')}&lang=${lang}&role=${role}&stake=${stake}&prize=${prize}&roomName=${roomName}&players=${players}&autoStart=true`;
+    }
+
+    const matched = GAMES_CONFIG.find(g => g.key === activeGame);
+    const base = matched?.embedUrl || `/games/${activeGame}`;
+    const sep = base.includes('?') ? '&' : '?';
+    const stakeParams = selectedStakeConfig
+      ? `&stake=${selectedStakeConfig.table.entryFee}&prize=${selectedStakeConfig.table.prizeAmount}&table=${selectedStakeConfig.table.id}&mode=${selectedStakeConfig.mode}&opponentName=${encodeURIComponent(selectedStakeConfig.opponent.name)}&opponentAvatar=${encodeURIComponent(selectedStakeConfig.opponent.avatar)}&opponentFlag=${encodeURIComponent(selectedStakeConfig.opponent.flag)}`
+      : '';
+    return `${base}${sep}userId=${p.id}&username=${encodeURIComponent(p.username)}&avatar=${encodeURIComponent(p.avatar_url || '')}&lang=${lang}${stakeParams}`;
+  }, [
+    showGameModal,
+    activeGame,
+    lang,
+    cafeRoomConfig?.roomId,
+    cafeRoomConfig?.role,
+    cafeRoomConfig?.playerCount,
+    cafeRoomConfig?.entryFee,
+    ludoRoomConfig?.roomId,
+    ludoRoomConfig?.role,
+    ludoRoomConfig?.playerCount,
+    ludoRoomConfig?.entryFee,
+    selectedStakeConfig?.table?.id,
+  ]);
 
   return (
     <div
@@ -1465,46 +1519,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
             <div className={`flex-1 flex flex-col md:flex-row ${activeGame === 'ludo' ? 'p-0' : 'p-0.5 sm:p-2'} gap-2 sm:gap-4 overflow-hidden bg-transparent no-pull-refresh overscroll-none`}>
               <div className="flex-1 bg-transparent overflow-hidden h-full shadow-inner relative z-10 w-full no-pull-refresh overscroll-none">
                 <iframe
-                  src={
-                    (() => {
-                      if (activeGame === 'ludo') {
-                        const role = cafeRoomConfig?.role || ludoRoomConfig?.role || 'player';
-                        const players = cafeRoomConfig?.playerCount || ludoRoomConfig?.playerCount || 4;
-                        const pieces = ludoRoomConfig?.pieceCount || 4;
-                        const winRule = ludoRoomConfig?.winRule || 'all';
-                        const stake = cafeRoomConfig?.entryFee || ludoRoomConfig?.entryFee || 50;
-                        const roomIdParam = encodeURIComponent(cafeRoomConfig?.roomId || ludoRoomConfig?.roomId || `ludo-${profile.id.slice(0, 6)}`);
-                        const roomName = encodeURIComponent(cafeRoomConfig?.roomName || ludoRoomConfig?.roomName || 'Ludo Room');
-                        const isHost = cafeRoomConfig?.isHost !== undefined ? cafeRoomConfig.isHost : true;
-                        const hostId = encodeURIComponent(cafeRoomConfig?.hostId || profile.id);
-                        const hostName = encodeURIComponent(cafeRoomConfig?.hostName || profile.username);
-                        const hostAvatar = encodeURIComponent(cafeRoomConfig?.hostAvatar || profile.avatar_url || '');
-                        return `/games/ludo?userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomId=${roomIdParam}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}&goldCoins=${profile.gold_coins}`;
-                      }
-
-                      // Handle other 5 Cafe Social Games (Domino, Backgammon, Chess, Uno, Estimation)
-                      if (['domino', 'backgammon', 'chess', 'uno', 'estimation'].includes(activeGame)) {
-                        const role = cafeRoomConfig?.role || 'player';
-                        const players = cafeRoomConfig?.playerCount || 4;
-                        const stake = cafeRoomConfig?.entryFee || 50;
-                        const prize = cafeRoomConfig?.prizeAmount || (stake * (players === 2 ? 1.9 : 3.8));
-                        const roomName = encodeURIComponent(cafeRoomConfig?.roomName || 'Cafe Table');
-                        const matched = GAMES_CONFIG.find(g => g.key === activeGame);
-                        const base = matched?.embedUrl || `/games/${activeGame}`;
-                        const sep = base.includes('?') ? '&' : '?';
-                        return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}&role=${role}&stake=${stake}&prize=${prize}&roomName=${roomName}&players=${players}&autoStart=true`;
-                      }
-
-                      // General games (Billiards, arcade)
-                      const matched = GAMES_CONFIG.find(g => g.key === activeGame);
-                      const base = matched?.embedUrl || `/games/${activeGame}`;
-                      const sep = base.includes('?') ? '&' : '?';
-                      const stakeParams = selectedStakeConfig
-                        ? `&stake=${selectedStakeConfig.table.entryFee}&prize=${selectedStakeConfig.table.prizeAmount}&table=${selectedStakeConfig.table.id}&mode=${selectedStakeConfig.mode}&opponentName=${encodeURIComponent(selectedStakeConfig.opponent.name)}&opponentAvatar=${encodeURIComponent(selectedStakeConfig.opponent.avatar)}&opponentFlag=${encodeURIComponent(selectedStakeConfig.opponent.flag)}`
-                        : '';
-                      return `${base}${sep}userId=${profile.id}&username=${encodeURIComponent(profile.username)}&avatar=${encodeURIComponent(profile.avatar_url || '')}&lang=${lang}${stakeParams}`;
-                    })()
-                  }
+                  src={activeIframeSrc}
                   className="w-full h-full border-none"
                   title="Game Iframe Inside Modal"
                 />
