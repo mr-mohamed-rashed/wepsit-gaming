@@ -44,6 +44,7 @@ export type LudoRoomEvent =
       senderName: string;
       senderColor: LudoTurnColor;
       targetColor: LudoTurnColor;
+      giftId?: string;
       emoji: string;
       label: string;
       price: number;

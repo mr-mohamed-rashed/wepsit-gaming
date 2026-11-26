@@ -24,6 +24,41 @@ import {
   SpeakerToggleIcon,
 } from './ludoIcons';
 import {
+  BoardTheme,
+  GIFTS_LIST,
+  GiftItem,
+  H2HRecord,
+  LUDO_PUBLIC_ROOMS,
+  PublicLudoRoom,
+  BOARD_SKINS,
+} from './ludoConstants';
+import { MythicSplashScreenIntro } from './ludoSplashIntro';
+import {
+  playGiftSound as playGiftSoundAudio,
+  playCoinChime as playCoinChimeAudio,
+  playDiceRollSound as playDiceRollSoundAudio,
+  playStepSound as playStepSoundAudio,
+  playSafeSound as playSafeSoundAudio,
+  playSuccessSound as playSuccessSoundAudio,
+  playFailSound as playFailSoundAudio,
+  playVictorySound as playVictorySoundAudio,
+} from './ludoAudio';
+import {
+  ActiveGiftImpact,
+  FlyingGiftProjectile,
+  GiftProjectileOverlay,
+  CornerGiftImpactOverlay,
+} from './ludoGifts';
+import {
+  GiftPickerModal,
+  H2HModal,
+  WinnerModal,
+  QuickChatModal,
+  RulesModal,
+  ExitConfirmModal,
+  SettingsModal,
+} from './ludoModals';
+import {
   joinLudoRoomRealtime,
   subscribeLudoLobby,
   syncLudoEconomyToServer,
@@ -42,763 +77,7 @@ export default function LudoPage() {
   );
 }
 
-export type BoardTheme = 'classic' | 'underwater' | 'space' | 'ancient';
-
-export interface BoardSkinData {
-  id: BoardTheme;
-  nameAr: string;
-  nameEn: string;
-  image: string;
-  icon: string;
-}
-
-const BOARD_SKINS: Record<BoardTheme, BoardSkinData> = {
-  classic: {
-    id: 'classic',
-    nameAr: 'الكلاسيكي التقليدي',
-    nameEn: 'Classic Traditional',
-    image: '/classic_ludo_board.svg',
-    icon: '🎨',
-  },
-  space: {
-    id: 'space',
-    nameAr: 'مجرة الكواكب والفضاء',
-    nameEn: 'Cosmic Galaxy & Planets',
-    image: '/space_board.png',
-    icon: '🪐',
-  },
-  underwater: {
-    id: 'underwater',
-    nameAr: 'عالم تحت الماء (المحيط)',
-    nameEn: 'Underwater Ocean',
-    image: '/board_skin_underwater.jpg',
-    icon: '🌊',
-  },
-  ancient: {
-    id: 'ancient',
-    nameAr: 'أساطير الفراعنة والآثار',
-    nameEn: 'Ancient Pharaonic Egypt',
-    image: '/board_skin_pharaonic.jpg',
-    icon: '🏺',
-  },
-};
-
-export interface GiftItem {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  icon: string;
-  cost: number;
-  category: 'friendly' | 'prank';
-  descAr: string;
-  sound: 'splat' | 'slap' | 'boom' | 'chime' | 'funny';
-}
-
-export const GIFTS_LIST: GiftItem[] = [
-  // Friendly / تحيات ومودة
-  {
-    id: 'handshake',
-    nameAr: 'مرحبا ومصافحة',
-    nameEn: 'Handshake',
-    icon: '🤝',
-    cost: 10,
-    category: 'friendly',
-    descAr: 'تحية ترحيب ومصافحة ودية من القلب',
-    sound: 'chime'
-  },
-  {
-    id: 'highfive',
-    nameAr: '5 هاند (كف)',
-    nameEn: 'High Five',
-    icon: '✋',
-    cost: 15,
-    category: 'friendly',
-    descAr: 'كف حماسي خمسة وخميسة للمنافس',
-    sound: 'chime'
-  },
-  {
-    id: 'flowers',
-    nameAr: 'باقة ورد ملكية',
-    nameEn: 'Royal Flowers',
-    icon: '🌸',
-    cost: 20,
-    category: 'friendly',
-    descAr: 'باقة زهور للتعبير عن الروح الرياضية',
-    sound: 'chime'
-  },
-  {
-    id: 'coffee',
-    nameAr: 'فنجان قهوة',
-    nameEn: 'Arabic Coffee',
-    icon: '☕',
-    cost: 15,
-    category: 'friendly',
-    descAr: 'قهوة عربية أصيلة وكرم ضيافة',
-    sound: 'chime'
-  },
-  {
-    id: 'crown',
-    nameAr: 'تاج الملوك',
-    nameEn: 'King Crown',
-    icon: '👑',
-    cost: 50,
-    category: 'friendly',
-    descAr: 'تتويج المنافس بتاج الفخامة والملوك',
-    sound: 'chime'
-  },
-  {
-    id: 'diamond',
-    nameAr: 'ألماسة النصر',
-    nameEn: 'Victory Diamond',
-    icon: '💎',
-    cost: 100,
-    category: 'friendly',
-    descAr: 'جوهرة أسطورية نادرة للمحترفين',
-    sound: 'chime'
-  },
-  {
-    id: 'love',
-    nameAr: 'قلوب ومحبة',
-    nameEn: 'Hearts Shower',
-    icon: '💖',
-    cost: 20,
-    category: 'friendly',
-    descAr: 'أمطار من القلوب والمودة بين الأصدقاء',
-    sound: 'chime'
-  },
-
-  // Pranks / مقالب وضرب
-  {
-    id: 'egg',
-    nameAr: 'ضرب بالبيض',
-    nameEn: 'Throw Egg',
-    icon: '🥚',
-    cost: 15,
-    category: 'prank',
-    descAr: 'بيضة طائرة تفقس وتلطخ الوجه بصفار البيض!',
-    sound: 'splat'
-  },
-  {
-    id: 'slipper',
-    nameAr: 'ضرب بالشبشب',
-    nameEn: 'Slipper Slap',
-    icon: '🩴',
-    cost: 20,
-    category: 'prank',
-    descAr: 'لسعة شبشب أسطورية تهز الشاشة مع صوت رنان!',
-    sound: 'slap'
-  },
-  {
-    id: 'tomato',
-    nameAr: 'طماطم مفعصة',
-    nameEn: 'Squash Tomato',
-    icon: '🍅',
-    cost: 15,
-    category: 'prank',
-    descAr: 'طماطم طائرة تنفجر وتتفغص على وجه الخصم!',
-    sound: 'splat'
-  },
-  {
-    id: 'bomb',
-    nameAr: 'قنبلة متفجرة',
-    nameEn: 'Explosive Bomb',
-    icon: '💣',
-    cost: 30,
-    category: 'prank',
-    descAr: 'قنبلة موقوتة تنفجر بدخان وصوت انفجار قوي!',
-    sound: 'boom'
-  },
-  {
-    id: 'ice',
-    nameAr: 'تجميد بالثلج',
-    nameEn: 'Ice Freeze',
-    icon: '🧊',
-    cost: 20,
-    category: 'prank',
-    descAr: 'كتلة جليدية تجمد الخصم في مكانه مؤقتاً!',
-    sound: 'chime'
-  },
-  {
-    id: 'chicken',
-    nameAr: 'فرخة تصرخ',
-    nameEn: 'Screaming Chicken',
-    icon: '🐔',
-    cost: 25,
-    category: 'prank',
-    descAr: 'دجاجة مقالب تصرخ في وجه الخصم بشكل كوميدي!',
-    sound: 'funny'
-  },
-  {
-    id: 'fart',
-    nameAr: 'ريح محرجة',
-    nameEn: 'Poof Wind',
-    icon: '💨',
-    cost: 10,
-    category: 'prank',
-    descAr: 'مقلب هواء محرج يثير الضحك!',
-    sound: 'funny'
-  },
-  {
-    id: 'boxing',
-    nameAr: 'لكمة ملاكمة',
-    nameEn: 'Boxing Punch',
-    icon: '🥊',
-    cost: 25,
-    category: 'prank',
-    descAr: 'قفاز ملاكمة يطير ويسدد بوكس سريع للمنافس!',
-    sound: 'slap'
-  }
-];
-
-export interface H2HRecord {
-  totalMatches: number;
-  playerWins: number;
-  opponentWins: number;
-  byColor: { red: number; green: number; yellow: number };
-  streak: number;
-  history: Array<{
-    id: string;
-    date: string;
-    winner: PlayerColor;
-    winnerName: string;
-    playersCount: number;
-  }>;
-}
-
-
-// ==========================================
-// 🌟 5-SECOND HIGH-PERFORMANCE MYTHIC SPLASH SCREEN / INTRO COMPONENT
-// ====================================================================
-// Pure code animation (CSS3 + Web Audio + SVG) - ZERO heavy video files!
-interface CinematicIntroProps {
-  onComplete: () => void;
-  lang: string;
-  isMuted: boolean;
-}
-
-function MythicSplashScreenIntro({ onComplete, lang, isMuted }: CinematicIntroProps) {
-  // Stage 0: 0.0s - 1.0s -> Portal Brand Hook (GAMES PORTAL MYTHIC & GPM)
-  // Stage 1: 1.0s - 2.0s -> Underwater Atlantis Theme
-  // Stage 2: 2.0s - 3.0s -> Ancient Egyptian Pharaonic Theme
-  // Stage 3: 3.0s - 4.0s -> Outer Space Sci-Fi Theme
-  // Stage 4: 4.0s - 5.0s -> Grand Finale (Bilingual Title + GPM Badge + Nurex)
-  const [stage, setStage] = useState<0 | 1 | 2 | 3 | 4>(0);
-  const [isFadingOut, setIsFadingOut] = useState<boolean>(false);
-  const [progress, setProgress] = useState<number>(0);
-
-  const splashAudioCtxRef = useRef<AudioContext | null>(null);
-
-  // Web Audio procedural sound synthesizer (100% lightweight & offline, singleton context)
-  const playSoundEffect = (type: 'portal' | 'underwater' | 'pharaoh' | 'space' | 'finale') => {
-    if (isMuted || typeof window === 'undefined') return;
-    try {
-      if (!splashAudioCtxRef.current || splashAudioCtxRef.current.state === 'closed') {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return;
-        splashAudioCtxRef.current = new AudioCtx();
-      }
-      const ctx = splashAudioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-      const now = ctx.currentTime;
-
-      if (type === 'portal') {
-        // Deep sub-bass sweep + golden bell chime
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(80, now);
-        osc.frequency.exponentialRampToValueAtTime(160, now + 0.4);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.8);
-        gain.gain.setValueAtTime(0.4, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.8);
-
-        [880, 1320, 1760].forEach((freq, idx) => {
-          const bOsc = ctx.createOscillator();
-          const bGain = ctx.createGain();
-          bOsc.type = 'triangle';
-          bOsc.frequency.setValueAtTime(freq, now + idx * 0.08);
-          bGain.gain.setValueAtTime(0.15, now + idx * 0.08);
-          bGain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.5);
-          bOsc.connect(bGain);
-          bGain.connect(ctx.destination);
-          bOsc.start(now + idx * 0.08);
-          bOsc.stop(now + idx * 0.08 + 0.5);
-        });
-      } else if (type === 'underwater') {
-        // Hydro whoosh & bubbling water stream
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(220, now);
-        osc.frequency.exponentialRampToValueAtTime(110, now + 0.4);
-        gain.gain.setValueAtTime(0.35, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.5);
-
-        [440, 587, 659, 880].forEach((f, i) => {
-          const bOsc = ctx.createOscillator();
-          const bGain = ctx.createGain();
-          bOsc.type = 'sine';
-          bOsc.frequency.setValueAtTime(f, now + 0.08 + i * 0.1);
-          bOsc.frequency.exponentialRampToValueAtTime(f * 1.4, now + 0.08 + i * 0.1 + 0.08);
-          bGain.gain.setValueAtTime(0.12, now + 0.08 + i * 0.1);
-          bGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08 + i * 0.1 + 0.1);
-          bOsc.connect(bGain);
-          bGain.connect(ctx.destination);
-          bOsc.start(now + 0.08 + i * 0.1);
-          bOsc.stop(now + 0.08 + i * 0.1 + 0.1);
-        });
-      } else if (type === 'pharaoh') {
-        // Ancient ceremonial brass trumpet fan
-        [293.66, 370, 440, 587.33].forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(freq, now + idx * 0.06);
-          gain.gain.setValueAtTime(0.01, now + idx * 0.06);
-          gain.gain.linearRampToValueAtTime(0.16, now + idx * 0.06 + 0.08);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.6);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.06);
-          osc.stop(now + idx * 0.06 + 0.6);
-        });
-      } else if (type === 'space') {
-        // Sci-Fi laser warp sweep & synth pulse
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(1900, now + 0.35);
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.5);
-
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'square';
-        osc2.frequency.setValueAtTime(523.25, now + 0.08);
-        gain2.gain.setValueAtTime(0.1, now + 0.08);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.start(now + 0.08);
-        osc2.stop(now + 0.4);
-      } else if (type === 'finale') {
-        // Slam impact + Royal victory chords
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(190, now);
-        osc.frequency.exponentialRampToValueAtTime(25, now + 0.5);
-        gain.gain.setValueAtTime(0.85, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.5);
-
-        [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
-          const fOsc = ctx.createOscillator();
-          const fGain = ctx.createGain();
-          fOsc.type = 'sawtooth';
-          fOsc.frequency.setValueAtTime(freq, now + 0.04 + idx * 0.05);
-          fGain.gain.setValueAtTime(0.01, now + 0.04 + idx * 0.05);
-          fGain.gain.linearRampToValueAtTime(0.18, now + 0.04 + idx * 0.05 + 0.08);
-          fGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04 + idx * 0.05 + 0.7);
-          fOsc.connect(fGain);
-          fGain.connect(ctx.destination);
-          fOsc.start(now + 0.04 + idx * 0.05);
-          fOsc.stop(now + 0.04 + idx * 0.05 + 0.7);
-        });
-      }
-    } catch (e) {}
-  };
-
-  useEffect(() => {
-    // 0.0s -> Portal Hook
-    playSoundEffect('portal');
-
-    // 1.0s -> Underwater Atlantis
-    const t1 = setTimeout(() => {
-      setStage(1);
-      playSoundEffect('underwater');
-    }, 1000);
-
-    // 2.0s -> Ancient Egyptian Pharaonic
-    const t2 = setTimeout(() => {
-      setStage(2);
-      playSoundEffect('pharaoh');
-    }, 2000);
-
-    // 3.0s -> Outer Space Sci-Fi
-    const t3 = setTimeout(() => {
-      setStage(3);
-      playSoundEffect('space');
-    }, 3000);
-
-    // 4.0s -> Grand Finale
-    const t4 = setTimeout(() => {
-      setStage(4);
-      playSoundEffect('finale');
-    }, 4000);
-
-    // 4.7s -> Smooth fade out
-    const t5 = setTimeout(() => {
-      setIsFadingOut(true);
-    }, 4700);
-
-    // 5.0s -> Strictly 5 seconds transition to Main Menu!
-    const t6 = setTimeout(() => {
-      onComplete();
-    }, 5000);
-
-    // Top progress bar update
-    const startTime = Date.now();
-    const pInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const pct = Math.min(100, (elapsed / 5000) * 100);
-      setProgress(pct);
-    }, 50);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
-      clearTimeout(t5);
-      clearTimeout(t6);
-      clearInterval(pInterval);
-    };
-  }, []);
-
-  const handleSkip = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onComplete();
-  };
-
-  // Dynamic background themes for the 5 stages
-  const bgStyles = [
-    'from-slate-950 via-slate-900 to-black', // Stage 0: Portal void
-    'from-[#021B35] via-[#052e4f] to-[#011424]', // Stage 1: Underwater ocean
-    'from-[#2d1804] via-[#451a03] to-[#1a0a02]', // Stage 2: Pharaonic golden desert
-    'from-[#1e0836] via-[#0f172a] to-[#020617]', // Stage 3: Space nebula
-    'from-slate-950 via-[#271302] to-slate-950', // Stage 4: Grand Finale
-  ];
-
-  return (
-    <div
-      onClick={handleSkip}
-      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-gradient-to-b ${bgStyles[stage]} overflow-hidden select-none transition-colors duration-700 ease-in-out cursor-pointer ${
-        isFadingOut ? 'opacity-0' : 'opacity-100'
-      } transition-opacity duration-300`}
-    >
-      {/* 5-Second Slim Top Progress Bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-slate-900/80 z-50 overflow-hidden pointer-events-none">
-        <div
-          className="h-full bg-gradient-to-r from-amber-500 via-yellow-300 to-cyan-400 shadow-[0_0_12px_#f59e0b] transition-all duration-75 ease-linear"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-
-      {/* Subtle Responsive Skip / تخطي Button */}
-      <button
-        type="button"
-        onClick={handleSkip}
-        className="absolute top-4 right-4 sm:top-6 sm:right-6 z-50 flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 text-amber-400 hover:text-amber-300 border border-amber-500/40 text-xs sm:text-sm font-black shadow-[0_0_20px_rgba(245,158,11,0.3)] backdrop-blur-md transition-all active:scale-95 cursor-pointer pointer-events-auto"
-      >
-        <span>{lang === 'ar' ? 'تخطي' : 'Skip'}</span>
-        <span className="text-sm">⏭️</span>
-      </button>
-
-      {/* Ambient Moving Particles & Light Rays */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(245,158,11,0.12),transparent_70%)] pointer-events-none" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(6,182,212,0.12),transparent_60%)] pointer-events-none animate-pulse" />
-
-      {/* ======================================================== */}
-      {/* 1. STAGE 0 (0.0s - 1.0s): Portal Brand Hook (GPM & Banner) */}
-      {/* ======================================================== */}
-      {stage === 0 && (
-        <div className="relative z-20 flex flex-col items-center justify-center text-center p-4 max-w-lg w-full animate-fadeIn">
-          {/* Glowing GPM Shield Emblem */}
-          <div className="relative mb-5 sm:mb-6 flex items-center justify-center">
-            {/* Rotating dashed aura */}
-            <div className="absolute w-32 h-32 sm:w-44 sm:h-44 rounded-full border-2 border-dashed border-amber-400/40 animate-[spin_8s_linear_infinite]" />
-            <div className="absolute w-28 h-28 sm:w-36 sm:h-36 rounded-full border border-cyan-400/30 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" />
-            <div className="absolute inset-0 m-auto w-24 h-24 sm:w-32 sm:h-32 bg-amber-400/25 rounded-full blur-2xl" />
-
-            {/* Emblem Crest */}
-            <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-3xl bg-gradient-to-br from-slate-900 via-amber-950/60 to-slate-950 border-2 border-amber-400/80 shadow-[0_0_50px_rgba(245,158,11,0.6),inset_0_0_20px_rgba(245,158,11,0.3)] flex flex-col items-center justify-center">
-              <span className="text-2xl sm:text-3xl text-amber-400 filter drop-shadow mb-[-4px]">👑</span>
-              <span className="text-3xl sm:text-5xl font-black tracking-tighter bg-gradient-to-b from-amber-100 via-amber-300 to-amber-600 bg-clip-text text-transparent filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.8)]">
-                GPM
-              </span>
-            </div>
-          </div>
-
-          {/* Primary Portal Brand Banner */}
-          <div className="space-y-2">
-            <h1 className="text-xl sm:text-3xl md:text-4xl font-black text-amber-300 tracking-[0.2em] sm:tracking-[0.25em] uppercase drop-shadow-[0_0_25px_rgba(245,158,11,0.8)]">
-              GAMES PORTAL MYTHIC
-            </h1>
-            <p className="text-xs sm:text-sm font-bold text-slate-300 tracking-widest flex items-center justify-center gap-2">
-              <span className="text-amber-400">⚡</span>
-              <span>{lang === 'ar' ? 'بوابة الألعاب الأسطورية الكبرى' : 'PORTAL OF LEGENDARY BATTLES'}</span>
-              <span className="text-amber-400">⚡</span>
-            </p>
-          </div>
-
-          {/* Developer Credit Footer */}
-          <div className="absolute bottom-[-90px] sm:bottom-[-110px] text-[11px] sm:text-xs text-slate-400 tracking-wider">
-            Powered by <span className="font-extrabold text-slate-200">Nurex</span>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 2. STAGE 1 (1.0s - 2.0s): Underwater Atlantis Theme     */}
-      {/* ======================================================== */}
-      {stage === 1 && (
-        <div className="relative z-20 flex flex-col items-center justify-center text-center p-4 max-w-2xl w-full animate-fadeIn">
-          {/* Header Tag */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-950/70 border border-cyan-400/50 text-cyan-300 text-xs sm:text-sm font-black mb-3.5 shadow-[0_0_15px_rgba(6,182,212,0.4)]">
-            <span>🔱</span>
-            <span>{lang === 'ar' ? 'العالم الأول: أطلانطس أعماق البحار' : 'WORLD 1: UNDERWATER ATLANTIS'}</span>
-          </div>
-
-          {/* Underwater 3D Board Showcase */}
-          <div className="relative w-full max-w-[260px] sm:max-w-[320px] md:max-w-[360px] aspect-square rounded-3xl overflow-hidden border-2 border-cyan-400/80 shadow-[0_0_60px_rgba(6,182,212,0.6)] transform -rotate-2 hover:rotate-0 transition-transform duration-500 bg-slate-950">
-            <img
-              src="/board_skin_underwater.jpg"
-              alt="Underwater Atlantis Board"
-              className="w-full h-full object-cover scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-cyan-950/80 via-transparent to-cyan-500/15 pointer-events-none" />
-            <div className="absolute bottom-2.5 inset-x-2.5 p-2 rounded-xl bg-slate-950/85 backdrop-blur-md border border-cyan-400/40 text-center">
-              <span className="text-[11px] sm:text-xs md:text-sm font-black text-cyan-300">
-                {lang === 'ar' ? '🌊 رقعة أعماق المحيط والغواصات 🌊' : '🌊 Oceanic Deep Abyss & Submarines 🌊'}
-              </span>
-            </div>
-          </div>
-
-          <p className="mt-3.5 text-xs sm:text-sm font-bold text-cyan-200/90 tracking-wide">
-            {lang === 'ar' ? 'شعاب مرجانية، كائنات بحرية، ومسارات مائية ساحرة' : 'Sunken kingdoms, coral reefs & aquatic warpaths'}
-          </p>
-
-          <div className="absolute bottom-[-60px] text-[11px] text-slate-400">
-            GAMES PORTAL MYTHIC • Powered by Nurex
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 3. STAGE 2 (2.0s - 3.0s): Ancient Egyptian Pharaonic     */}
-      {/* ======================================================== */}
-      {stage === 2 && (
-        <div className="relative z-20 flex flex-col items-center justify-center text-center p-4 max-w-2xl w-full animate-fadeIn">
-          {/* Header Tag */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-950/70 border border-amber-400/50 text-amber-300 text-xs sm:text-sm font-black mb-3.5 shadow-[0_0_15px_rgba(245,158,11,0.4)]">
-            <span>🏺</span>
-            <span>{lang === 'ar' ? 'العالم الثاني: أساطير الفراعنة والآثار' : 'WORLD 2: ANCIENT PHARAONIC DYNASTY'}</span>
-          </div>
-
-          {/* Pharaonic 3D Board Showcase */}
-          <div className="relative w-full max-w-[260px] sm:max-w-[320px] md:max-w-[360px] aspect-square rounded-3xl overflow-hidden border-2 border-amber-400/80 shadow-[0_0_60px_rgba(245,158,11,0.6)] transform rotate-2 hover:rotate-0 transition-transform duration-500 bg-slate-950">
-            <img
-              src="/board_skin_pharaonic.jpg"
-              alt="Ancient Pharaonic Board"
-              className="w-full h-full object-cover scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-amber-950/80 via-transparent to-yellow-500/15 pointer-events-none" />
-            <div className="absolute bottom-2.5 inset-x-2.5 p-2 rounded-xl bg-slate-950/85 backdrop-blur-md border border-amber-400/40 text-center">
-              <span className="text-[11px] sm:text-xs md:text-sm font-black text-amber-300">
-                {lang === 'ar' ? '☥ أهرامات الجيزة، مفتاح الحياة، ونهر النيل ☥' : '☥ Pyramids of Giza, Sacred Ankh & The Nile ☥'}
-              </span>
-            </div>
-          </div>
-
-          <p className="mt-3.5 text-xs sm:text-sm font-bold text-amber-200/90 tracking-wide">
-            {lang === 'ar' ? 'نقوش هيروغليفية حجرية وحماية الآلهة القديمة' : 'Sacred scarabs, golden sands & ancient hieroglyphs'}
-          </p>
-
-          <div className="absolute bottom-[-60px] text-[11px] text-slate-400">
-            GAMES PORTAL MYTHIC • Powered by Nurex
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 4. STAGE 3 (3.0s - 4.0s): Outer Space Sci-Fi Theme       */}
-      {/* ======================================================== */}
-      {stage === 3 && (
-        <div className="relative z-20 flex flex-col items-center justify-center text-center p-4 max-w-2xl w-full animate-fadeIn">
-          {/* Header Tag */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-purple-950/70 border border-purple-400/50 text-purple-300 text-xs sm:text-sm font-black mb-3.5 shadow-[0_0_15px_rgba(168,85,247,0.4)]">
-            <span>🪐</span>
-            <span>{lang === 'ar' ? 'العالم الثالث: مجرة الكواكب وحرب النجوم' : 'WORLD 3: COSMIC GALAXY & NEBULA'}</span>
-          </div>
-
-          {/* Cosmic 3D Board Showcase */}
-          <div className="relative w-full max-w-[260px] sm:max-w-[320px] md:max-w-[360px] aspect-square rounded-3xl overflow-hidden border-2 border-purple-400/80 shadow-[0_0_60px_rgba(168,85,247,0.7)] transform -rotate-2 hover:rotate-0 transition-transform duration-500 bg-slate-950">
-            <img
-              src="/board_skin_cosmic.jpg"
-              alt="Cosmic Galaxy Board"
-              className="w-full h-full object-cover scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-purple-950/80 via-transparent to-cyan-500/15 pointer-events-none" />
-            <div className="absolute bottom-2.5 inset-x-2.5 p-2 rounded-xl bg-slate-950/85 backdrop-blur-md border border-purple-400/40 text-center">
-              <span className="text-[11px] sm:text-xs md:text-sm font-black text-purple-300">
-                {lang === 'ar' ? '🚀 كواكب بركانية، نيازك، وبوابات ثقب دودي 🚀' : '🚀 Orbital Rings, Solar Flares & Cyber Grid 🚀'}
-              </span>
-            </div>
-          </div>
-
-          <p className="mt-3.5 text-xs sm:text-sm font-bold text-purple-200/90 tracking-wide">
-            {lang === 'ar' ? 'معارك نرد بين المجرات وفضاء لا نهائي من التحدي' : 'Interstellar dice duels across galaxies & wormholes'}
-          </p>
-
-          <div className="absolute bottom-[-60px] text-[11px] text-slate-400">
-            GAMES PORTAL MYTHIC • Powered by Nurex
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 5. STAGE 4 (4.0s - 5.0s): Grand Finale                   */}
-      {/* ======================================================== */}
-      {stage === 4 && (
-        <div className="relative z-20 flex flex-col items-center justify-center text-center p-4 max-w-3xl w-full animate-fadeIn">
-          {/* Rolling Golden Dice Impact Animation */}
-          <div className="relative mb-4 sm:mb-5 flex flex-col items-center">
-            {/* Expanding Shockwave Blast */}
-            <div className="absolute inset-0 m-auto w-28 h-28 sm:w-44 sm:h-44 rounded-full border-4 border-amber-400/80 animate-ping pointer-events-none" />
-            <div className="absolute inset-0 m-auto w-36 h-36 sm:w-52 sm:h-52 bg-gradient-to-r from-amber-400/30 to-cyan-400/30 rounded-full blur-2xl pointer-events-none" />
-
-            {/* The 3D Golden Dice */}
-            <div className="relative p-3 sm:p-4 rounded-3xl bg-gradient-to-br from-amber-200 via-amber-400 to-yellow-600 border-2 sm:border-4 border-amber-200 shadow-[0_0_60px_rgba(251,191,36,0.9),inset_0_0_20px_rgba(255,255,255,0.9)] animate-[bounce_0.8s_ease-out]">
-              <span className="text-5xl sm:text-7xl filter drop-shadow">🎲</span>
-            </div>
-          </div>
-
-          {/* Bilingual Game Title */}
-          <div className="space-y-1 sm:space-y-2 mb-3 sm:mb-4">
-            <h1 className="text-xl sm:text-3xl md:text-5xl font-black text-white tracking-wider drop-shadow-[0_0_25px_rgba(255,255,255,0.6)]">
-              Ludo: Mythic Kingdoms
-            </h1>
-            <h2 className="text-xl sm:text-3xl md:text-5xl font-black bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 bg-clip-text text-transparent drop-shadow-[0_0_35px_rgba(245,158,11,0.9)]">
-              لودو: الممالك الأسطورية
-            </h2>
-          </div>
-
-          {/* Primary Portal Brand (Prominent Badge) */}
-          <div className="mt-2 px-4 sm:px-6 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-amber-500/20 via-cyan-500/20 to-amber-500/20 border border-amber-400/60 shadow-[0_0_30px_rgba(245,158,11,0.4)] backdrop-blur-md flex items-center gap-2">
-            <span className="text-sm sm:text-lg">👑</span>
-            <span className="font-black text-xs sm:text-sm md:text-base text-amber-300 tracking-[0.2em] uppercase">
-              GAMES PORTAL MYTHIC
-            </span>
-            <span className="text-sm sm:text-lg">👑</span>
-          </div>
-
-          {/* Developer Credit Footer (Subtle Bottom Edge) */}
-          <div className="mt-6 sm:mt-8 text-[11px] sm:text-xs text-slate-400 tracking-wider">
-            A <span className="font-black text-slate-200">Nurex</span> Production • Powered by Nurex
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface PublicLudoRoom {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  hostName: string;
-  hostAvatar: string;
-  flag: string;
-  playerCount: 2 | 4;
-  currentPlayers: number;
-  spectatorsCount: number;
-  entryFee: number;
-  prizeAmount: number;
-  status: 'waiting' | 'in_game';
-  modeType: 'classic' | 'blitz';
-}
-
-const LUDO_PUBLIC_ROOMS: PublicLudoRoom[] = [
-  {
-    id: 'room-vip-1',
-    nameAr: '🏰 قاعة الملوك الكبرى (VIP)',
-    nameEn: 'Grand Kings Hall (VIP)',
-    hostName: 'الساحر الملكي',
-    hostAvatar: '/laugh_emote.png',
-    flag: '🇪🇬',
-    playerCount: 4,
-    currentPlayers: 3,
-    spectatorsCount: 4,
-    entryFee: 100,
-    prizeAmount: 380,
-    status: 'waiting',
-    modeType: 'classic',
-  },
-  {
-    id: 'room-blitz-2',
-    nameAr: '⚡ تحدي النرد السريع (خاطف)',
-    nameEn: 'Blitz Dice Showdown',
-    hostName: 'صقر الخليج',
-    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr',
-    flag: '🇸🇦',
-    playerCount: 2,
-    currentPlayers: 1,
-    spectatorsCount: 2,
-    entryFee: 50,
-    prizeAmount: 95,
-    status: 'waiting',
-    modeType: 'blitz',
-  },
-  {
-    id: 'room-classic-3',
-    nameAr: '🎲 مجلس أبطال لودو العربي',
-    nameEn: 'Arab Ludo Champions Majlis',
-    hostName: 'حنين نورتي',
-    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Haneen',
-    flag: '🇦🇪',
-    playerCount: 4,
-    currentPlayers: 4,
-    spectatorsCount: 7,
-    entryFee: 500,
-    prizeAmount: 1900,
-    status: 'in_game',
-    modeType: 'classic',
-  },
-  {
-    id: 'room-alex-4',
-    nameAr: '🌊 ملتقى الإسكندرية الدولي',
-    nameEn: 'Alexandria Shore Arena',
-    hostName: 'البرنس المصري',
-    hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=AhmedEG',
-    flag: '🇪🇬',
-    playerCount: 4,
-    currentPlayers: 2,
-    spectatorsCount: 3,
-    entryFee: 50,
-    prizeAmount: 190,
-    status: 'waiting',
-    modeType: 'classic',
-  },
-];
+// Constants, Splash Intro & Rooms extracted to ludoConstants.ts and ludoSplashIntro.tsx
 
 function LudoApp() {
   const searchParams = useSearchParams();
@@ -1355,23 +634,8 @@ function LudoApp() {
   // --- Gift Box & Reactions State ---
   const [selectedGiftTarget, setSelectedGiftTarget] = useState<PlayerColor | null>(null);
   const [giftCategoryTab, setGiftCategoryTab] = useState<'prank' | 'friendly'>('prank');
-  const [flyingGift, setFlyingGift] = useState<{
-    id: string;
-    from: PlayerColor;
-    to: PlayerColor;
-    icon: string;
-    name: string;
-  } | null>(null);
-
-  const [activeImpacts, setActiveImpacts] = useState<{
-    [key in PlayerColor]?: {
-      icon: string;
-      title: string;
-      fromName: string;
-      effect: string;
-      id: number;
-    };
-  }>({});
+  const [flyingGift, setFlyingGift] = useState<FlyingGiftProjectile | null>(null);
+  const [activeImpacts, setActiveImpacts] = useState<{ [key in PlayerColor]?: ActiveGiftImpact }>({});
 
   const [playerConfig, setPlayerConfig] = useState<{ [key in PlayerColor]: 'human' | 'bot' | 'none' }>(() => {
     if (queryRole === 'spectator') {
@@ -1960,23 +1224,26 @@ function LudoApp() {
             return next;
           });
         } else if (ev.type === 'gift_sent') {
+          const matchedGift = GIFTS_LIST.find(g => g.id === ev.giftId || g.icon === ev.emoji);
+          const effectId = matchedGift?.id || ev.giftId || 'custom';
           setFlyingGift({
             id: Date.now().toString(),
             from: ev.senderColor,
             to: ev.targetColor,
             icon: ev.emoji,
             name: ev.label,
+            effectId,
           });
           setTimeout(() => {
             setFlyingGift(null);
-            playGiftSound(ev.mode === 'war' ? 'boom' : 'chime');
+            playGiftSound(matchedGift?.sound || (ev.mode === 'war' ? 'boom' : 'chime'));
             setActiveImpacts((prev) => ({
               ...prev,
               [ev.targetColor]: {
                 icon: ev.emoji,
                 title: ev.label,
                 fromName: ev.senderName,
-                effect: ev.label,
+                effect: effectId,
                 id: Date.now(),
               },
             }));
@@ -1986,8 +1253,8 @@ function LudoApp() {
                 delete n[ev.targetColor];
                 return n;
               });
-            }, 3000);
-          }, 550);
+            }, 3200);
+          }, 520);
         }
       },
     });
@@ -2034,247 +1301,14 @@ function LudoApp() {
     };
   }, [userProfile?.id, roomId, gameStarted, lobbyView]);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-
-  // Sound Synthesizers (Web Audio API - reused singleton AudioContext for zero stutter)
-  const getAudioContext = () => {
-    if (isMuted || typeof window === 'undefined') return null;
-    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return null;
-      audioCtxRef.current = new AudioCtx();
-    }
-    if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume().catch(() => {});
-    }
-    return audioCtxRef.current;
-  };
-
-  const playGiftSound = (soundType: 'splat' | 'slap' | 'boom' | 'chime' | 'funny') => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const now = ctx.currentTime;
-
-      if (soundType === 'splat') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(70, now + 0.18);
-        gain.gain.setValueAtTime(0.25, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.18);
-      } else if (soundType === 'slap') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(950, now);
-        osc.frequency.exponentialRampToValueAtTime(120, now + 0.09);
-        gain.gain.setValueAtTime(0.35, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.09);
-      } else if (soundType === 'boom') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(140, now);
-        osc.frequency.exponentialRampToValueAtTime(25, now + 0.45);
-        gain.gain.setValueAtTime(0.4, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.45);
-      } else if (soundType === 'chime') {
-        [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, now + idx * 0.07);
-          gain.gain.setValueAtTime(0.12, now + idx * 0.07);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.28);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.07);
-          osc.stop(now + idx * 0.07 + 0.28);
-        });
-      } else if (soundType === 'funny') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.linearRampToValueAtTime(420, now + 0.12);
-        osc.frequency.exponentialRampToValueAtTime(90, now + 0.3);
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.3);
-      }
-    } catch (e) {}
-  };
-
-  const playCoinChime = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(987.77, now);
-      osc.frequency.setValueAtTime(1318.51, now + 0.08);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.25);
-    } catch (e) {}
-  };
-
-  const playDiceRollSound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const now = ctx.currentTime;
-      for (let i = 0; i < 6; i++) {
-        const time = now + i * 0.08 + Math.random() * 0.02;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(140 - i * 12, time);
-        osc.frequency.exponentialRampToValueAtTime(35, time + 0.04);
-        gain.gain.setValueAtTime(0.12, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.04);
-        osc.start(time);
-        osc.stop(time + 0.05);
-
-        const clickOsc = ctx.createOscillator();
-        const clickGain = ctx.createGain();
-        clickOsc.connect(clickGain);
-        clickGain.connect(ctx.destination);
-        clickOsc.type = 'sine';
-        clickOsc.frequency.setValueAtTime(1300 + Math.random() * 200, time);
-        clickGain.gain.setValueAtTime(0.07, time);
-        clickGain.gain.exponentialRampToValueAtTime(0.004, time + 0.025);
-        clickOsc.start(time);
-        clickOsc.stop(time + 0.03);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const playStepSound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.05);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.05);
-    } catch (e) { }
-  };
-
-  const playSafeSound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.16);
-    } catch (e) { }
-  };
-
-  const playSuccessSound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const notes = [523.25, 659.25, 783.99, 1046.50];
-      const now = ctx.currentTime;
-      notes.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.07);
-        gain.gain.setValueAtTime(0.12, now + idx * 0.07);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.2);
-        osc.start(now + idx * 0.07);
-        osc.stop(now + idx * 0.07 + 0.22);
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const playFailSound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(220, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.32);
-    } catch (e) { }
-  };
-
-  const playVictorySound = () => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50];
-      const now = ctx.currentTime;
-      notes.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.12);
-        gain.gain.setValueAtTime(0.2, now + idx * 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.4);
-        osc.start(now + idx * 0.12);
-        osc.stop(now + idx * 0.12 + 0.45);
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  const playGiftSound = (soundType: 'splat' | 'slap' | 'boom' | 'chime' | 'funny') => playGiftSoundAudio(soundType, isMuted);
+  const playCoinChime = () => playCoinChimeAudio(isMuted);
+  const playDiceRollSound = () => playDiceRollSoundAudio(isMuted);
+  const playStepSound = () => playStepSoundAudio(isMuted);
+  const playSafeSound = () => playSafeSoundAudio(isMuted);
+  const playSuccessSound = () => playSuccessSoundAudio(isMuted);
+  const playFailSound = () => playFailSoundAudio(isMuted);
+  const playVictorySound = () => playVictorySoundAudio(isMuted);
 
   const [gameState, setGameState] = useState<'waiting_roll' | 'waiting_move'>('waiting_roll');
   const [isAnimating, setIsAnimating] = useState(false);
@@ -3596,6 +2630,7 @@ function LudoApp() {
       senderName: getPlayerName(mySeatColor || 'blue'),
       senderColor: mySeatColor || 'blue',
       targetColor,
+      giftId: gift.id,
       emoji: gift.icon,
       label: lang === 'ar' ? gift.nameAr : gift.nameEn,
       price: gift.cost,
@@ -3605,34 +2640,36 @@ function LudoApp() {
     // Close modal
     setSelectedGiftTarget(null);
 
-    // Floating deduction text on blue player
+    // Floating deduction text on sender corner
+    const senderCol = mySeatColor || 'blue';
     setFloatingCoinText({
-      player: 'blue',
+      player: senderCol,
       text: `-${gift.cost} 🪙`
     });
     setTimeout(() => setFloatingCoinText(null), 1200);
 
-    // Trigger Flying Projectile
+    // Trigger Flying Projectile along curve from sender -> target
     setFlyingGift({
       id: Date.now().toString(),
-      from: 'blue',
+      from: senderCol,
       to: targetColor,
       icon: gift.icon,
       name: lang === 'ar' ? gift.nameAr : gift.nameEn,
+      effectId: gift.id,
     });
 
-    // Impact after 600ms
+    // Impact right as projectile touches target corner (520ms)
     setTimeout(() => {
       setFlyingGift(null);
       playGiftSound(gift.sound);
 
-      // Apply Impact to Target
+      // Apply Signature Per-Gift Impact (Egg cracks/drips, Tomato squashes, Slipper whacks, etc.)
       setActiveImpacts(prev => ({
         ...prev,
         [targetColor]: {
           icon: gift.icon,
           title: lang === 'ar' ? gift.nameAr : gift.nameEn,
-          fromName: getPlayerName('blue'),
+          fromName: getPlayerName(senderCol),
           effect: gift.id,
           id: Date.now()
         }
@@ -3645,27 +2682,28 @@ function LudoApp() {
           : `🎁 You sent [${gift.icon} ${gift.nameEn}] to ${getPlayerName(targetColor)}!`
       );
 
-      // Clear impact after 3.5s
+      // Clear impact after 3.2s
       setTimeout(() => {
         setActiveImpacts(prev => {
           const next = { ...prev };
           delete next[targetColor];
           return next;
         });
-      }, 3500);
+      }, 3200);
 
-      // If target is bot, bot can counter-attack after 2.2s with 60% probability!
+      // If target is bot, bot can counter-attack after 2.2s!
       if (playerConfig[targetColor] === 'bot') {
         setTimeout(() => {
           const botReplies = GIFTS_LIST.filter(g => ['egg', 'slipper', 'tomato', 'highfive'].includes(g.id));
           const replyGift = botReplies[Math.floor(Math.random() * botReplies.length)];
-          
+
           setFlyingGift({
             id: Date.now().toString(),
             from: targetColor,
-            to: 'blue',
+            to: senderCol,
             icon: replyGift.icon,
             name: lang === 'ar' ? replyGift.nameAr : replyGift.nameEn,
+            effectId: replyGift.id,
           });
 
           setTimeout(() => {
@@ -3674,7 +2712,7 @@ function LudoApp() {
 
             setActiveImpacts(prev => ({
               ...prev,
-              blue: {
+              [senderCol]: {
                 icon: replyGift.icon,
                 title: lang === 'ar' ? replyGift.nameAr : replyGift.nameEn,
                 fromName: getPlayerName(targetColor),
@@ -3697,14 +2735,14 @@ function LudoApp() {
             setTimeout(() => {
               setActiveImpacts(prev => {
                 const next = { ...prev };
-                delete next.blue;
+                delete next[senderCol];
                 return next;
               });
-            }, 3500);
-          }, 600);
+            }, 3200);
+          }, 520);
         }, 2200);
       }
-    }, 600);
+    }, 520);
   };
 
   const handleResetH2H = () => {
@@ -4006,15 +3044,8 @@ function LudoApp() {
           isTurn ? 'ring-2 ring-inset ring-amber-300 z-20' : 'z-10'
         }`}
       >
-        {/* Active Impact (Gift animation) */}
-        {impact && (
-          <div className="absolute inset-0 z-40 bg-black/85 rounded-2xl flex flex-col items-center justify-center p-1 backdrop-blur-[2px] animate-fadeIn pointer-events-none">
-            <span className="text-2xl animate-bounce">{impact.icon}</span>
-            <span className="text-[9px] font-black text-amber-300 text-center leading-tight mt-0.5">
-              {impact.title}
-            </span>
-          </div>
-        )}
+        {/* Active Signature Per-Gift Impact Animation */}
+        {impact && <CornerGiftImpactOverlay impact={impact} />}
 
         {/* Floating Coin Text */}
         {floatingCoinText && floatingCoinText.player === baseColor && (
@@ -5475,392 +4506,54 @@ function LudoApp() {
         </div>
       )}
 
-      {/* FLYING PROJECTILE ANIMATION OVERLAY */}
-      {flyingGift && (
-        <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
-          <div className="text-5xl sm:text-6xl animate-[fly-projectile_0.6s_cubic-bezier(0.2,0.8,0.2,1)_forwards] filter drop-shadow-[0_0_20px_rgba(251,191,36,0.8)]">
-            {flyingGift.icon}
-          </div>
-        </div>
-      )}
+      {/* FLYING PROJECTILE & TARGETED GIFT EFFECTS */}
+      <GiftProjectileOverlay projectile={flyingGift} />
 
-      {/* 🕊️⚔️ PEACE & WAR GIFT / PRANK SELECTION MODAL */}
-      {selectedGiftTarget && (
-        <div
-          onClick={() => setSelectedGiftTarget(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl relative flex flex-col gap-3"
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🕊️⚔️</span>
-                <div>
-                  <h3 className="text-sm font-black text-amber-400">
-                    {lang === 'ar' ? 'السلام والحرب (الهدايا والمقالب)' : 'Peace & War (Gifts & Pranks)'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">
-                    {lang === 'ar' ? 'إرسال إلى: ' : 'Send to: '}
-                    <span className="text-amber-300 font-bold">{getPlayerName(selectedGiftTarget)}</span>
-                  </p>
-                </div>
-              </div>
+      <GiftPickerModal
+        lang={lang}
+        selectedGiftTarget={selectedGiftTarget}
+        setSelectedGiftTarget={setSelectedGiftTarget}
+        giftCategoryTab={giftCategoryTab}
+        setGiftCategoryTab={setGiftCategoryTab}
+        playerCoins={playerCoins}
+        playerConfig={playerConfig}
+        getPlayerName={getPlayerName}
+        handleSendGift={handleSendGift}
+      />
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-amber-400 bg-amber-500/15 px-2.5 py-1 rounded-full border border-amber-500/30">
-                  🪙 {playerCoins}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedGiftTarget(null)}
-                  className="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
+      <H2HModal
+        lang={lang}
+        open={showH2HModal}
+        onClose={() => setShowH2HModal(false)}
+        h2hRecord={h2hRecord}
+      />
 
-            {/* Target Player Selector */}
-            <div className="flex items-center gap-1.5">
-              {(['green', 'yellow', 'red'] as PlayerColor[])
-                .filter(c => playerConfig[c] !== 'none')
-                .map(c => (
-                  <button
-                    key={`target-${c}`}
-                    type="button"
-                    onClick={() => setSelectedGiftTarget(c)}
-                    className={`flex-1 py-1 px-2 rounded-xl text-[10px] font-black border transition-colors cursor-pointer truncate ${
-                      selectedGiftTarget === c
-                        ? 'bg-amber-500/25 border-amber-400 text-amber-300'
-                        : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {c === 'green' ? '🟢 ' : c === 'yellow' ? '🟡 ' : '🔴 '}
-                    {getPlayerName(c)}
-                  </button>
-                ))}
-            </div>
+      <WinnerModal
+        lang={lang}
+        winner={winner}
+        winReward={winReward}
+        mySeatColor={mySeatColor}
+        getPlayerName={getPlayerName}
+        onPlayAgain={resetGame}
+        onExitToHub={() => {
+          if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
+          }
+          resetGame();
+        }}
+      />
 
-            {/* Category Switcher: War vs Peace */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/80 rounded-xl border border-slate-800 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setGiftCategoryTab('prank')}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  giftCategoryTab === 'prank'
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <WarSwordsIcon className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'حرب (مقالب وضرب)' : 'War (Pranks)'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setGiftCategoryTab('friendly')}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  giftCategoryTab === 'friendly'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <PeaceDoveIcon className="w-3.5 h-3.5" />
-                <span>{lang === 'ar' ? 'سلام (تحيات وود)' : 'Peace (Greetings)'}</span>
-              </button>
-            </div>
-
-            {/* Gifts Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[50vh] overflow-y-auto p-1">
-              {GIFTS_LIST.filter(g => g.category === giftCategoryTab).map((gift) => {
-                const canAfford = playerCoins >= gift.cost;
-                return (
-                  <button
-                    key={gift.id}
-                    type="button"
-                    onClick={() => handleSendGift(gift, selectedGiftTarget)}
-                    className={`flex flex-col items-center justify-between p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${
-                      canAfford
-                        ? 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-700/60 hover:border-amber-400/80 hover:scale-[1.03] shadow-md active:scale-95'
-                        : 'bg-slate-950/40 border-slate-900 opacity-50 cursor-not-allowed'
-                    }`}
-                  >
-                    <span className="text-3xl mb-1 filter drop-shadow">{gift.icon}</span>
-                    <span className="text-[11px] font-black text-slate-200 leading-tight">
-                      {lang === 'ar' ? gift.nameAr : gift.nameEn}
-                    </span>
-                    <p className="text-[9px] text-slate-400 line-clamp-1 my-0.5">
-                      {gift.descAr}
-                    </p>
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full mt-1 ${
-                      canAfford
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'bg-slate-800 text-slate-500'
-                    }`}>
-                      🪙 {gift.cost}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 📊 HEAD-TO-HEAD MATCH LOG MODAL */}
-      {showH2HModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-lg bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-5 shadow-2xl relative flex flex-col gap-4 max-h-[90vh]">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-black text-amber-400 flex items-center gap-2">
-                  <span>🏆</span>
-                  <span>{lang === 'ar' ? 'سجل المواجهات التاريخي الدائم' : 'Historical Head-to-Head Record'}</span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {lang === 'ar' ? 'يتم حفظ وتحديث نتائجك باستمرار مع كل مباراة' : 'Your records are persistently tracked across all matches'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowH2HModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 text-center">
-                <span className="text-[10px] text-slate-400 block">{lang === 'ar' ? 'إجمالي المباريات' : 'Matches'}</span>
-                <span className="text-lg font-black text-white">{h2hRecord.totalMatches}</span>
-              </div>
-              <div className="p-3 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 text-center">
-                <span className="text-[10px] text-cyan-400 block">{lang === 'ar' ? 'انتصاراتك' : 'Your Wins'}</span>
-                <span className="text-lg font-black text-cyan-300">
-                  {h2hRecord.playerWins}
-                  <span className="text-[10px] text-slate-400 font-normal mr-1">
-                    ({h2hRecord.totalMatches > 0 ? Math.round((h2hRecord.playerWins / h2hRecord.totalMatches) * 100) : 0}%)
-                  </span>
-                </span>
-              </div>
-              <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-center">
-                <span className="text-[10px] text-rose-400 block">{lang === 'ar' ? 'انتصارات الخصوم' : 'Opponent Wins'}</span>
-                <span className="text-lg font-black text-rose-300">{h2hRecord.opponentWins}</span>
-              </div>
-            </div>
-
-            {/* Breakdown by Opponent Color */}
-            <div className="p-3 rounded-2xl bg-slate-900/50 border border-slate-800">
-              <span className="text-[11px] font-bold text-slate-300 block mb-2">
-                {lang === 'ar' ? '🎯 تفصيل انتصارات الخصوم حسب اللون:' : 'Wins by Opponent Color:'}
-              </span>
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 rounded-xl bg-emerald-950/30 border border-emerald-500/30">
-                  <span className="text-emerald-400 font-bold block">🟢 الأخضر</span>
-                  <span className="font-black text-white text-sm">{h2hRecord.byColor?.green || 0}</span>
-                </div>
-                <div className="p-2 rounded-xl bg-rose-950/30 border border-rose-500/30">
-                  <span className="text-rose-400 font-bold block">🔴 الأحمر</span>
-                  <span className="font-black text-white text-sm">{h2hRecord.byColor?.red || 0}</span>
-                </div>
-                <div className="p-2 rounded-xl bg-amber-950/30 border border-amber-500/30">
-                  <span className="text-amber-400 font-bold block">🟡 الأصفر</span>
-                  <span className="font-black text-white text-sm">{h2hRecord.byColor?.yellow || 0}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Match History Log */}
-            <div className="flex-1 overflow-y-auto max-h-[30vh] border border-slate-800/80 rounded-2xl p-2 bg-slate-950/50">
-              <span className="text-[10px] font-bold text-slate-400 block mb-1.5 px-1">
-                {lang === 'ar' ? '📜 سجل آخر المباريات:' : 'Recent Matches:'}
-              </span>
-              {(!h2hRecord.history || h2hRecord.history.length === 0) ? (
-                <div className="py-6 text-center text-xs text-slate-500 font-bold">
-                  {lang === 'ar' ? 'لا توجد مباريات مسجلة بعد. العب الآن لبدء تسجيل تاريخك!' : 'No recorded matches yet. Play to start logging history!'}
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {h2hRecord.history.map((m, idx) => (
-                    <div
-                      key={m.id || idx}
-                      className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/70 text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 font-bold">#{h2hRecord.history.length - idx}</span>
-                        <span className="font-black text-slate-200">
-                          {m.winner === 'blue' ? '👑 ' : '💀 '}
-                          {m.winnerName}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                        <span>{m.playersCount} {lang === 'ar' ? 'لاعبين' : 'players'}</span>
-                        <span>•</span>
-                        <span>{m.date}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Footer Actions */}
-            <div className="flex items-center justify-between border-t border-slate-800/80 pt-3">
-              <button
-                type="button"
-                onClick={handleResetH2H}
-                className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                🗑️ {lang === 'ar' ? 'تصفير السجل' : 'Reset Record'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowH2HModal(false)}
-                className="px-5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition-all cursor-pointer"
-              >
-                {lang === 'ar' ? 'تم' : 'Done'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VICTORY / GAME OVER MODAL */}
-      {winner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
-          <div className="w-full max-w-sm bg-slate-950 border-2 border-amber-400/60 rounded-3xl p-6 text-center shadow-[0_0_60px_rgba(245,158,11,0.3)] relative overflow-hidden">
-            <div className="absolute -top-10 -left-10 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl" />
-            <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-cyan-500/20 rounded-full blur-2xl" />
-
-            <div className="relative z-10">
-              <span className="text-6xl inline-block mb-3 animate-bounce">
-                {winner === 'blue' ? '🏆' : '👑'}
-              </span>
-
-              <h3 className="text-2xl font-black text-amber-400 mb-1">
-                {winner === 'blue'
-                  ? (lang === 'ar' ? 'نصر أسطوري ساحق!' : 'Epic Victory!')
-                  : (lang === 'ar' ? 'انتهت المعركة!' : 'Match Ended!')}
-              </h3>
-
-              <p className="text-xs text-slate-300 font-semibold mb-4">
-                {lang === 'ar' ? `الفائز بالبطولة هو: ` : `Tournament Winner: `}
-                <span className="text-amber-300 font-black">{getPlayerName(winner)}</span>
-              </p>
-
-              {winner === 'blue' && (
-                <div className="bg-amber-950/40 border border-amber-500/40 rounded-2xl p-3 mb-5 flex items-center justify-center gap-3">
-                  <span className="text-2xl">🪙</span>
-                  <div className="text-right">
-                    <p className="text-xs font-black text-amber-300">+150 عملة ذهبية</p>
-                    <p className="text-[10px] text-slate-400">مكافأة الفوز في بطولة اللودو</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-2.5">
-                <button
-                  onClick={resetGame}
-                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-98 transition-all cursor-pointer"
-                >
-                  {lang === 'ar' ? 'لعب جولة جديدة 🔁' : 'Play Again 🔁'}
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-                      window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
-                    }
-                    resetGame();
-                  }}
-                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl border border-slate-800 transition-colors cursor-pointer"
-                >
-                  {lang === 'ar' ? 'العودة للرئيسية 🚪' : 'Exit to Hub 🚪'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 💬 QUICK CHAT MODAL */}
-      {showQuickChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-sm bg-slate-950 border border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-sm font-black text-amber-300">💬 {lang === 'ar' ? 'الدردشة والتعليقات السريعة' : 'Quick Chat'}</span>
-              <button
-                type="button"
-                onClick={() => setShowQuickChat(false)}
-                className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Quick Phrases */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                'لعبة ممتعة يا أبطال! 🔥',
-                'عاش يا وحش! 👏',
-                'ركز معايا بقى! 🎯',
-                'حظ أوفر يا صديقي! 🤝',
-                'يلا العب سريع ⚡',
-                'كفو والله! 👑',
-              ].map((phrase, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    addChatMessage(phrase, 'chat', userProfile?.username || 'Ali', true);
-                    setShowQuickChat(false);
-                    playGiftSound('chime');
-                  }}
-                  className="p-2 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-800 hover:border-amber-400/50 text-[11px] text-slate-200 font-bold text-center active:scale-95 transition-all cursor-pointer"
-                >
-                  {phrase}
-                </button>
-              ))}
-            </div>
-
-            {/* Custom Input */}
-            <div className="flex items-center gap-1.5 pt-1">
-              <input
-                type="text"
-                value={quickInputText}
-                onChange={(e) => setQuickInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && quickInputText.trim()) {
-                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali', true);
-                    setQuickInputText('');
-                    setShowQuickChat(false);
-                  }
-                }}
-                placeholder={lang === 'ar' ? 'اكتب رسالة للغرفة...' : 'Type message...'}
-                className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (quickInputText.trim()) {
-                    addChatMessage(quickInputText.trim(), 'chat', userProfile?.username || 'Ali', true);
-                    setQuickInputText('');
-                    setShowQuickChat(false);
-                  }
-                }}
-                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs active:scale-95 transition-all cursor-pointer"
-              >
-                {lang === 'ar' ? 'إرسال' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <QuickChatModal
+        lang={lang}
+        open={showQuickChat}
+        onClose={() => setShowQuickChat(false)}
+        quickInputText={quickInputText}
+        setQuickInputText={setQuickInputText}
+        onSendMessage={(txt) => {
+          addChatMessage(txt, 'chat', userProfile?.username || 'Ali', true);
+          playGiftSound('chime');
+        }}
+      />
 
       {/* 👑 USER MODERATION & PROFILE MODAL */}
       {selectedUserForModeration && (
@@ -6259,428 +4952,43 @@ function LudoApp() {
         </div>
       )}
 
-      {/* ⚙️ FLOATING SETTINGS & QUICK CONTROLS MODAL */}
-      {showSettingsModal && (
-        <div
-          onClick={() => setShowSettingsModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-slate-950 border-2 border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col gap-3 text-slate-100 max-h-[88dvh] overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-sm font-black text-amber-300 flex items-center gap-1.5">
-                <SettingsGearIcon className="w-4 h-4" />
-                <span>{lang === 'ar' ? 'الإعدادات والتحكم السريع' : 'Settings & Quick Controls'}</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300 flex items-center gap-1">
-                  <CoinGoldIcon className="w-3.5 h-3.5" />
-                  <span>{playerCoins}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowSettingsModal(false)}
-                  className="w-6 h-6 rounded-full bg-slate-900 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
+      <SettingsModal
+        lang={lang}
+        open={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        playerCoins={playerCoins}
+        isMuted={isMuted}
+        onToggleMute={() => setIsMuted(prev => !prev)}
+        isMicOn={isMicOn}
+        onToggleMic={toggleMic}
+        musicTrackName={musicTrackName}
+        isPlayingMusic={isPlayingMusic}
+        onOpenMusic={() => {
+          if (!musicTrackName) musicFileInputRef.current?.click();
+          else setIsMusicModalOpen(true);
+        }}
+        onOpenIntro={() => setShowCinematicIntro(true)}
+        onOpenH2H={() => setShowH2HModal(true)}
+        gameStarted={gameStarted}
+        onReturnToRoom={returnToRoom}
+        canAccessSettings={canAccessSettings}
+        selectedBoardSkin={selectedBoardSkin}
+        onSelectTheme={handleSelectTheme}
+        roomMicMode={roomMicMode}
+        onToggleMicMode={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
+        onResetGame={resetGame}
+        MicIconComponent={MicIcon}
+      />
 
-            <div className="space-y-2 text-xs">
-              {/* Quick Control Buttons Grid (نُقلت من الهيدر العلوي) */}
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setIsMuted(prev => !prev)}
-                  className={`p-2 rounded-xl border font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                    isMuted ? 'bg-rose-950/80 text-rose-300 border-rose-800' : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
-                  }`}
-                >
-                  <SpeakerToggleIcon muted={isMuted} className="w-4 h-4" />
-                  <span>{isMuted ? (lang === 'ar' ? 'الصوت مكتوم' : 'Muted') : (lang === 'ar' ? 'المؤثرات شغالة' : 'Sound On')}</span>
-                </button>
+      <RulesModal lang={lang} open={showRulesModal} onClose={() => setShowRulesModal(false)} />
 
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  className={`p-2 rounded-xl border font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                    isMicOn ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' : 'bg-rose-950/80 text-rose-300 border-rose-800'
-                  }`}
-                >
-                  <MicIcon muted={!isMicOn} className="w-4 h-4" />
-                  <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic Active') : (lang === 'ar' ? 'المايك مكتوم' : 'Mic Off')}</span>
-                </button>
+      <ExitConfirmModal
+        lang={lang}
+        open={showExitConfirmModal}
+        onStay={() => setShowExitConfirmModal(false)}
+        onConfirm={confirmExitGame}
+      />
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSettingsModal(false);
-                    if (!musicTrackName) {
-                      musicFileInputRef.current?.click();
-                    } else {
-                      setIsMusicModalOpen(true);
-                    }
-                  }}
-                  className="p-2 rounded-xl border border-amber-500/35 bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>{isPlayingMusic ? '⏸️' : '🎵'}</span>
-                  <span className="truncate">{musicTrackName || (lang === 'ar' ? 'مشغل الأغاني' : 'Music')}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSettingsModal(false);
-                    setShowCinematicIntro(true);
-                  }}
-                  className="p-2 rounded-xl border border-amber-500/35 bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>🎬</span>
-                  <span>{lang === 'ar' ? 'الدخلة السينمائية' : 'Intro'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSettingsModal(false);
-                    setShowH2HModal(true);
-                  }}
-                  className="p-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>🏆</span>
-                  <span>{lang === 'ar' ? 'سجل المواجهات' : 'H2H Stats'}</span>
-                </button>
-
-                {gameStarted && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSettingsModal(false);
-                      returnToRoom();
-                    }}
-                    className="p-2 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <span>🏰</span>
-                    <span>{lang === 'ar' ? 'مجلس الغرفة' : 'Room Lounge'}</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Admin / Host Settings Section */}
-              {canAccessSettings && (
-                <>
-                  {/* Theme Selection */}
-                  <div className="space-y-1 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'تصميم الرقعة (الثيم):' : 'Board Theme:'}</span>
-                    <div className="grid grid-cols-2 gap-1.5 pt-1">
-                      {(['classic', 'space', 'underwater', 'ancient'] as BoardTheme[]).map((themeKey) => (
-                        <button
-                          key={themeKey}
-                          type="button"
-                          onClick={() => handleSelectTheme(themeKey)}
-                          className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                            selectedBoardSkin === themeKey
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-400'
-                              : 'bg-slate-950/60 text-slate-400 border-slate-800'
-                          }`}
-                        >
-                          {BOARD_SKINS[themeKey].icon} {lang === 'ar' ? BOARD_SKINS[themeKey].nameAr : BOARD_SKINS[themeKey].nameEn}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Mic Permission Mode */}
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div>
-                      <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'صلاحيات المايك:' : 'Mic Mode:'}</span>
-                      <span className="text-[9px] text-slate-500">
-                        {roomMicMode === 'all' ? (lang === 'ar' ? 'متاح للجميع' : 'Open for all') : (lang === 'ar' ? 'للمشرفين فقط' : 'Admins only')}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
-                        roomMicMode === 'all'
-                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                          : 'bg-amber-950 text-amber-300 border border-amber-800'
-                      }`}
-                    >
-                      {roomMicMode === 'all' ? '🎙️ للجميع' : '👑 للمشرفين'}
-                    </button>
-                  </div>
-
-                  {/* Reset Game */}
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-slate-300 font-bold">{lang === 'ar' ? 'إعادة ضبط المعركة:' : 'Reset Match:'}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowSettingsModal(false);
-                        resetGame();
-                      }}
-                      className="px-3 py-1 rounded-lg bg-rose-950 text-rose-300 border border-rose-800 text-xs font-black cursor-pointer"
-                    >
-                      🔄 إعادة
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ❓ LUDO RULES MODAL */}
-      {showRulesModal && (
-        <div
-          onClick={() => setShowRulesModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn"
-        >
-          <div
-            dir={lang === 'ar' ? 'rtl' : 'ltr'}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col gap-3 text-slate-100 max-h-[85dvh] overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-              <div className="flex items-center gap-2 text-amber-300 font-black text-sm">
-                <HelpQuestionIcon className="w-5 h-5" />
-                <span>{lang === 'ar' ? 'قواعد ودليل لودو الممالك' : 'Mythical Ludo Rules'}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowRulesModal(false)}
-                className="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2.5 text-xs leading-relaxed text-slate-300">
-              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
-                <StartLaunchIcon className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <p>
-                  {lang === 'ar'
-                    ? 'احصل على الرقم (6) لإخراج مقاتلك من القاعدة إلى خانة الانطلاق، كما يمنحك الرقم 6 رمية إضافية!'
-                    : 'Roll a 6 to move a piece out from base onto the starting tile and earn an extra roll.'}
-                </p>
-              </div>
-              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
-                <StarShieldIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <p>
-                  {lang === 'ar'
-                    ? 'المربعات النجمية ومربعات الانطلاق آمنة تماماً ولا يمكن أكل أي قطعة فوقها، وتكوين جدار من قطعتين يحميها.'
-                    : 'Star tiles and launch tiles are Safe Zones where pieces cannot be captured.'}
-                </p>
-              </div>
-              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
-                <WarSwordsIcon className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                <p>
-                  {lang === 'ar'
-                    ? 'عند الوقوف على قطعة خصم منفردة خارج المناطق الآمنة، تُعاد لقاعدتها وتحصل على رمية إضافية!'
-                    : 'Landing on a single opponent pawn sends it back to base and grants a bonus roll!'}
-                </p>
-              </div>
-              <div className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-start gap-2.5">
-                <CrownIcon className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
-                <p>
-                  {lang === 'ar'
-                    ? 'توصيل قطعة للنهاية يمنح رمية إضافية. الفائز يحصل على جائزة الرهان وتُحفظ نقاطه في الملف الشخصي!'
-                    : 'Reaching the center Crown gives an extra roll. Finish first to win the table prize!'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🚪 EXIT MATCH CONFIRMATION MODAL */}
-      {showExitConfirmModal && (
-        <div
-          onClick={() => setShowExitConfirmModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn"
-        >
-          <div
-            dir={lang === 'ar' ? 'rtl' : 'ltr'}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xs bg-slate-950 border-2 border-rose-500/60 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-center"
-          >
-            <h3 className="text-base font-black text-white">
-              {lang === 'ar' ? 'تأكيد الخروج من المباراة' : 'Leave Match?'}
-            </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {lang === 'ar'
-                ? 'المباراة لا تزال جارية الآن! هل أنت متأكد أنك تريد مغادرة الطاولة والعودة إلى الصالة؟'
-                : 'The match is still in progress. Are you sure you want to leave this table?'}
-            </p>
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowExitConfirmModal(false)}
-                className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
-              >
-                {lang === 'ar' ? 'البقاء في اللعب' : 'Stay'}
-              </button>
-              <button
-                type="button"
-                onClick={confirmExitGame}
-                className="py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-lg"
-              >
-                {lang === 'ar' ? 'نعم، خروج' : 'Yes, Exit'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Animation Styles */}
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        @keyframes clash-left {
-          0% { transform: translateX(-150px) rotate(-45deg); opacity: 0; }
-          70% { transform: translateX(10px) rotate(15deg); opacity: 1; }
-          100% { transform: translateX(0) rotate(0deg); opacity: 1; }
-        }
-        @keyframes clash-right {
-          0% { transform: translateX(150px) rotate(45deg); opacity: 0; }
-          70% { transform: translateX(-10px) rotate(-15deg); opacity: 1; }
-          100% { transform: translateX(0) rotate(0deg); opacity: 1; }
-        }
-        @keyframes slam-dice {
-          0% { transform: translateY(-300px) scale(2.5) rotate(-180deg); opacity: 0; }
-          65% { transform: translateY(15px) scale(0.85) rotate(20deg); opacity: 1; }
-          85% { transform: translateY(-10px) scale(1.08) rotate(-10deg); }
-          100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
-        }
-        @keyframes crown-drop {
-          0% { transform: translateY(-80px) scale(0.3); opacity: 0; }
-          60% { transform: translateY(8px) scale(1.2); opacity: 1; }
-          100% { transform: translateY(0) scale(1); opacity: 1; }
-        }
-        @keyframes reveal-left-to-right {
-          0% {
-            clip-path: inset(0 100% 0 0);
-            filter: brightness(3.5) drop-shadow(0 0 40px #f59e0b);
-            opacity: 0;
-          }
-          15% {
-            opacity: 1;
-          }
-          100% {
-            clip-path: inset(0 0% 0 0);
-            filter: brightness(1) drop-shadow(0 0 25px rgba(251,191,36,0.9));
-            opacity: 1;
-          }
-        }
-        @keyframes beam-sweep {
-          0% { left: 0%; opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { left: 100%; opacity: 0; }
-        }
-
-        @keyframes slap-shake-avatar {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); }
-          15% { transform: translate(-10px, -4px) rotate(-18deg) scale(1.15); }
-          30% { transform: translate(10px, 4px) rotate(14deg) scale(1.15); }
-          50% { transform: translate(-6px, 2px) rotate(-10deg); }
-          70% { transform: translate(6px, -2px) rotate(8deg); }
-          85% { transform: translate(-2px, 1px) rotate(-3deg); }
-        }
-
-        @keyframes fly-projectile {
-          0% { transform: scale(0.6) translate(-50%, -50%); opacity: 0; }
-          20% { opacity: 1; transform: scale(1.3) translate(-50%, -50%) rotate(45deg); }
-          80% { opacity: 1; transform: scale(1.1) translate(-50%, -50%) rotate(360deg); }
-          100% { opacity: 0; transform: scale(1.8) translate(-50%, -50%) rotate(540deg); }
-        }
-
-        @keyframes dice-3d-roll {
-          0% {
-            transform: translateY(0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
-          }
-          20% {
-            transform: translateY(-24px) rotateX(240deg) rotateY(180deg) rotateZ(90deg) scale(1.2);
-          }
-          45% {
-            transform: translateY(-15px) rotateX(540deg) rotateY(360deg) rotateZ(180deg) scale(1.12);
-          }
-          70% {
-            transform: translateY(-5px) rotateX(840deg) rotateY(540deg) rotateZ(270deg) scale(1.04);
-          }
-          88% {
-            transform: translateY(2px) rotateX(1020deg) rotateY(700deg) rotateZ(340deg) scale(0.97);
-          }
-          100% {
-            transform: translateY(0) rotateX(1080deg) rotateY(720deg) rotateZ(360deg) scale(1);
-          }
-        }
-        .animate-dice-3d-roll {
-          animation: dice-3d-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-          transform-style: preserve-3d;
-        }
-        .animate-dice-natural-roll {
-          animation: dice-3d-roll 0.75s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-          transform-style: preserve-3d;
-        }
-        @keyframes poke-left {
-          0%, 100% { transform: translate(0, -50%); }
-          50% { transform: translate(-12px, -50%); }
-        }
-        @keyframes poke-right {
-          0%, 100% { transform: translate(0, -50%); }
-          50% { transform: translate(12px, -50%); }
-        }
-        .animate-poke-left {
-          animation: poke-left 0.6s ease-in-out infinite;
-        }
-        .animate-poke-right {
-          animation: poke-right 0.6s ease-in-out infinite;
-        }
-
-        @keyframes ludo-dice-spin {
-          0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
-          100% { transform: rotateX(720deg) rotateY(360deg) rotateZ(180deg); }
-        }
-        .no-scrollbar::-webkit-scrollbar {
-          display: none !important;
-          width: 0 !important;
-          height: 0 !important;
-        }
-        .no-scrollbar {
-          -ms-overflow-style: none !important;
-          scrollbar-width: none !important;
-        }
-        .preserve-3d {
-          transform-style: preserve-3d;
-        }
-        .ludo-dice-face {
-          backface-visibility: hidden;
-        }
-        @keyframes turn-ring-countdown {
-          0% {
-            stroke-dashoffset: 0;
-            stroke: #10b981;
-          }
-          60% {
-            stroke: #f59e0b;
-          }
-          82% {
-            stroke: #ef4444;
-          }
-          100% {
-            stroke-dashoffset: 100;
-            stroke: #ef4444;
-          }
-        }
-        .animate-turn-countdown {
-          animation: turn-ring-countdown 10s linear forwards;
-        }
-      `}} />
     </div>
   );
 }
