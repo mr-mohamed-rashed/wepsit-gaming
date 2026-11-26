@@ -70,11 +70,35 @@ export type LudoRoomEvent =
       playerCount: number;
       piecesCount: number;
       winRule: 'first' | 'all';
+      boardSkin?: 'classic' | 'underwater' | 'space' | 'ancient';
       activeColors: LudoTurnColor[];
       seatAssignments: Partial<Record<LudoTurnColor, { id: string; username: string; avatar: string; isHuman: boolean }>>;
     }
   | {
       type: 'match_end';
+      senderId: string;
+    }
+  | {
+      type: 'seat_sync';
+      senderId: string;
+      seats: Partial<Record<LudoTurnColor, { id: string; name: string; avatar: string; isBot: boolean; isHost?: boolean; isDeputy?: boolean } | null>>;
+    }
+  | {
+      type: 'room_config';
+      senderId: string;
+      boardSkin: 'classic' | 'underwater' | 'space' | 'ancient';
+      playerCount: number;
+      piecesCount: number;
+      winRule: 'first' | 'all';
+    }
+  | {
+      type: 'seat_kick';
+      senderId: string;
+      targetId: string;
+      seatColor: LudoTurnColor;
+    }
+  | {
+      type: 'room_sync_request';
       senderId: string;
     }
   | {

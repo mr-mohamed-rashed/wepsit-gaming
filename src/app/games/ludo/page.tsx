@@ -137,6 +137,16 @@ function LudoApp() {
     try {
       localStorage.setItem('ludo_board_theme', themeKey);
     } catch (e) {}
+    if (canAccessSettings && isRealtimeConnected) {
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'room_config',
+        senderId: userProfile?.id || 'host',
+        boardSkin: themeKey,
+        playerCount,
+        piecesCount: pieceCount,
+        winRule,
+      });
+    }
   };
 
   // Drag-to-scroll refs and handlers for the Top Mic Seats bar (الاسكرول بالسحب بدون شريط رمادي)
@@ -179,7 +189,7 @@ function LudoApp() {
   const lobbyRealtimeRef = useRef<{ publishHostedRoom: (r: LiveLobbyRoom | null) => Promise<void>; unsubscribe: () => void } | null>(null);
   const lastPeersSigRef = useRef<string>('');
   const rollDiceRef = useRef<(forcedVal?: number, fromRemote?: boolean) => void>(() => {});
-  const startMatchFromRoomRef = useRef<(broadcast?: boolean, overridePlayers?: 2 | 3 | 4) => void>(() => {});
+  const startMatchFromRoomRef = useRef<(broadcast?: boolean, overridePlayers?: 2 | 3 | 4, overrideSeats?: { [key in PlayerColor]: { id: string; name: string; avatar: string; isBot: boolean; isHost?: boolean; isDeputy?: boolean; isMuted?: boolean } | null }) => void>(() => {});
   const [movingTokenId, setMovingTokenId] = useState<string | null>(null);
   const [moveStepTick, setMoveStepTick] = useState<number>(0);
   const [boardBurst, setBoardBurst] = useState<{
@@ -251,16 +261,20 @@ function LudoApp() {
     isMuted?: boolean;
   }
 
+  const [fillEmptyWithBots, setFillEmptyWithBots] = useState<boolean>(true);
   const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>(() => ({
-    blue: {
-      id: queryIsHost ? (queryUserId || '12842582') : queryHostId,
-      name: queryIsHost ? (queryUsername || 'Ali') : queryHostName,
-      avatar: (queryIsHost ? queryAvatar : queryHostAvatar) || '/laugh_emote.png',
-      isBot: false,
-      isHost: true,
-      isDeputy: false,
-      isMuted: false,
-    },
+    blue:
+      queryIsHost && queryRole === 'player'
+        ? {
+            id: queryUserId || '12842582',
+            name: queryUsername || 'Ali',
+            avatar: queryAvatar || '/laugh_emote.png',
+            isBot: false,
+            isHost: true,
+            isDeputy: false,
+            isMuted: false,
+          }
+        : null,
     green: null,
     red: null,
     yellow: null,
@@ -975,16 +989,16 @@ function LudoApp() {
   };
 
   const mySeatColor: PlayerColor | null = useMemo(() => {
-    if (userRole === 'spectator') return null;
     const myId = userProfile?.id;
     const colors: PlayerColor[] = ['blue', 'green', 'red', 'yellow'];
     for (const c of colors) {
       if (tableSeats[c]?.id === myId) return c;
     }
-    return 'blue';
-  }, [tableSeats, userProfile?.id, userRole]);
+    return null;
+  }, [tableSeats, userProfile?.id]);
 
   const getPlayerName = (color: PlayerColor) => {
+    if (tableSeats[color]?.name) return tableSeats[color]!.name;
     if (playerConfig[color] === 'human') {
       if (color === 'blue') return userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)');
       if (color === 'red') return lang === 'ar' ? 'اللاعب 2 (الأحمر)' : 'Player 2 (Red)';
@@ -1159,28 +1173,40 @@ function LudoApp() {
   const isDeputy = userProfile?.id === roomDeputyId || (userProfile?.id ? moderatorIds.includes(userProfile.id) : false);
   const canAccessSettings = isHost || isDeputy;
   const canControlMatch = isHost || isDeputy;
+  const isHostOnlineInRoom = realtimePeers.some((p) => p.id === roomHostId);
+  const isFirstOnlinePeer = realtimePeers.length === 0 || realtimePeers[0]?.id === (userProfile?.id || '12842582');
+  const canDriveBots = !isRealtimeConnected || isHost || (!isHostOnlineInRoom && isFirstOnlinePeer);
+
+  const broadcastSeats = (nextSeats: { [key in PlayerColor]: RoomSeatUser | null }) => {
+    if (!isRealtimeConnected) return;
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'seat_sync',
+      senderId: userProfile?.id || 'user',
+      seats: {
+        blue: nextSeats.blue ? { id: nextSeats.blue.id, name: nextSeats.blue.name, avatar: nextSeats.blue.avatar, isBot: nextSeats.blue.isBot, isHost: nextSeats.blue.isHost, isDeputy: nextSeats.blue.isDeputy } : null,
+        green: nextSeats.green ? { id: nextSeats.green.id, name: nextSeats.green.name, avatar: nextSeats.green.avatar, isBot: nextSeats.green.isBot, isHost: nextSeats.green.isHost, isDeputy: nextSeats.green.isDeputy } : null,
+        red: nextSeats.red ? { id: nextSeats.red.id, name: nextSeats.red.name, avatar: nextSeats.red.avatar, isBot: nextSeats.red.isBot, isHost: nextSeats.red.isHost, isDeputy: nextSeats.red.isDeputy } : null,
+        yellow: nextSeats.yellow ? { id: nextSeats.yellow.id, name: nextSeats.yellow.name, avatar: nextSeats.yellow.avatar, isBot: nextSeats.yellow.isBot, isHost: nextSeats.yellow.isHost, isDeputy: nextSeats.yellow.isDeputy } : null,
+      },
+    });
+  };
+
+  const broadcastRoomConfig = (skin: BoardTheme, pCount: 2 | 3 | 4, pCountPieces: number, rule: 'first' | 'all') => {
+    if (!canAccessSettings || !isRealtimeConnected) return;
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'room_config',
+      senderId: userProfile?.id || 'host',
+      boardSkin: skin,
+      playerCount: pCount,
+      piecesCount: pCountPieces,
+      winRule: rule,
+    });
+  };
 
   const handleParticipateInMatch = () => {
-    if (!canAccessSettings && !hasMicPermission && roomMicMode !== 'all') {
-      setStatusMessage(lang === 'ar' ? '✋ يجب صعود المايك بموافقة صاحب الغرفة قبل المشاركة في اللعب!' : '✋ Get mic permission before joining board play!');
-      return;
-    }
-    const order: PlayerColor[] = playerCount === 2 ? ['green', 'blue'] : ['green', 'yellow', 'red', 'blue'];
-    const targetColor = order.find(c => !tableSeats[c] || tableSeats[c]?.isBot) || 'green';
-    const myId = userProfile?.id || '12842582';
-    const myName = userProfile?.username || 'Ali';
-    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
-    setTableSeats(prev => {
-      const next = { ...prev };
-      (Object.keys(next) as PlayerColor[]).forEach(k => {
-        if (next[k]?.id === myId) next[k] = null;
-      });
-      next[targetColor] = { id: myId, name: myName, avatar: myAvatar, isBot: false, isHost, isDeputy };
-      return next;
-    });
-    setPlayerConfig(prev => ({ ...prev, [targetColor]: 'human' }));
-    setUserRole('player');
-    setStatusMessage(lang === 'ar' ? `⚔️ انضممت للعب في المقعد ${targetColor}!` : `⚔️ Joined game as ${targetColor}!`);
+    const order: PlayerColor[] = playerCount === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
+    const targetColor = order.find(c => !tableSeats[c]) || order.find(c => tableSeats[c]?.isBot) || 'green';
+    handleTakePlayerSeat(targetColor);
   };
 
   const handleToggleRoomLock = () => {
@@ -1284,19 +1310,29 @@ function LudoApp() {
     setUserRole(amIHost ? 'player' : role);
 
     setTableSeats({
-      blue: {
-        id: resolvedHostId,
-        name: amIHost ? (userProfile?.username || room.hostName) : room.hostName,
-        avatar: amIHost ? (userProfile?.avatar_url || room.hostAvatar) : room.hostAvatar,
-        isBot: false,
-        isHost: true,
-        isDeputy: false,
-      },
+      blue:
+        amIHost
+          ? {
+              id: resolvedHostId,
+              name: userProfile?.username || room.hostName,
+              avatar: userProfile?.avatar_url || room.hostAvatar || '/laugh_emote.png',
+              isBot: false,
+              isHost: true,
+              isDeputy: false,
+            }
+          : null,
       green: null,
       red: null,
       yellow: null,
     });
-    startMatchFromRoom(false);
+    setGameStarted(true);
+    setMatchActive(false);
+    setWinner(null);
+    setStatusMessage(
+      amIHost
+        ? (lang === 'ar' ? '🏰 غرفتك مفتوحة — جهّز شكل الملعب والمقاعد وابدأ الجيم!' : '🏰 Your room is open — configure board & seats to start!')
+        : (lang === 'ar' ? '🎙️ دخلت الغرفة — اختر مقعداً فارغاً للعب أو استمع على المايك!' : '🎙️ Joined room — pick an open seat to play or listen on mic!')
+    );
   };
 
   const handleCreateCustomRoom = (role: 'player' | 'spectator') => {
@@ -1341,47 +1377,117 @@ function LudoApp() {
       red: null,
       yellow: null,
     });
-    startMatchFromRoom();
+    setGameStarted(true);
+    setMatchActive(false);
+    setWinner(null);
+    setStatusMessage(lang === 'ar' ? '🏰 غرفتك مفتوحة — جهّز شكل الملعب والمقاعد ثم اضغط بدء الجيم!' : '🏰 Room open — pick board skin & seats, then start!');
   };
 
   const handleTakePlayerSeat = (color: PlayerColor) => {
+    if (matchActive) return;
+    const myId = userProfile?.id || '12842582';
+    const myName = userProfile?.username || 'Ali';
+    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
     setTableSeats(prev => {
+      if (prev[color] && prev[color]!.id !== myId) return prev;
       const next = { ...prev };
       (Object.keys(next) as PlayerColor[]).forEach(k => {
-        if (next[k]?.id === userProfile.id) {
+        if (next[k]?.id === myId) {
           next[k] = null;
         }
       });
       next[color] = {
-        id: userProfile.id,
-        name: userProfile.username,
-        avatar: userProfile.avatar_url || '/laugh_emote.png',
+        id: myId,
+        name: myName,
+        avatar: myAvatar,
         isBot: false,
-        isHost: userProfile.id === roomHostId,
-        isDeputy: userProfile.id === roomDeputyId,
+        isHost: myId === roomHostId,
+        isDeputy: myId === roomDeputyId || moderatorIds.includes(myId),
       };
+      broadcastSeats(next);
       return next;
     });
     setUserRole('player');
+    setStatusMessage(lang === 'ar' ? `⚔️ انضممت في مقعد ${color === 'blue' ? 'الأزرق' : color === 'green' ? 'الأخضر' : color === 'red' ? 'الأحمر' : 'الأصفر'}!` : `⚔️ Joined ${color} seat!`);
+  };
+
+  const handleLeavePlayerSeat = () => {
+    if (matchActive) return;
+    const myId = userProfile?.id || '12842582';
+    setTableSeats(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as PlayerColor[]).forEach(k => {
+        if (next[k]?.id === myId) next[k] = null;
+      });
+      broadcastSeats(next);
+      return next;
+    });
+    setUserRole('spectator');
+    setStatusMessage(lang === 'ar' ? '🎙️ غادرت مقعد اللعب وبقيت في الغرفة كمتفرج.' : '🎙️ Left seat — staying in room as spectator.');
+  };
+
+  const handleRemoveFromSeat = (color: PlayerColor) => {
+    if (!canControlMatch) return;
+    const target = tableSeats[color];
+    if (!target) return;
+    setTableSeats(prev => {
+      const next = { ...prev, [color]: null };
+      broadcastSeats(next);
+      return next;
+    });
+    if (target.id === userProfile?.id) {
+      setUserRole('spectator');
+    }
+    if (!target.isBot && isRealtimeConnected) {
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'seat_kick',
+        senderId: userProfile?.id || 'host',
+        targetId: target.id,
+        seatColor: color,
+      });
+    }
+    if (matchActive) {
+      const remainingActive = (['blue', 'red', 'green', 'yellow'] as PlayerColor[]).filter(
+        c => c !== color && playerConfig[c] !== 'none'
+      );
+      setPlayerConfig(prev => ({ ...prev, [color]: 'none' }));
+      if (remainingActive.length < 2) {
+        setMatchActive(false);
+        setWinner(null);
+        setStatusMessage(lang === 'ar' ? '🛑 تم إنهاء الجيم لعدم كفاية اللاعبين — الغرفة مفتوحة!' : '🛑 Match ended — not enough players!');
+      } else if (turn === color) {
+        const nextTurn = remainingActive[0];
+        setTurn(nextTurn);
+        setRollingDicePlayer(null);
+        setGameState('waiting_roll');
+      }
+    }
+    addChatMessage(
+      lang === 'ar' ? `🚫 أزال المشرف ${target.name} من مقعد اللعب بالروم` : `🚫 Removed ${target.name} from game seat`,
+      'system'
+    );
   };
 
   const handleToggleBotOnSeat = (color: PlayerColor) => {
+    if (!canControlMatch || matchActive) return;
     setTableSeats(prev => {
       const current = prev[color];
-      if (current && current.isBot) {
-        return { ...prev, [color]: null };
-      }
-      return {
+      const next = {
         ...prev,
-        [color]: {
-          id: `bot-${color}`,
-          name: color === 'green' ? 'محمود (بوت)' : color === 'red' ? 'الساحر (بوت)' : 'صقر (بوت)',
-          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=Bot${color}`,
-          isBot: true,
-          isHost: false,
-          isDeputy: false,
-        }
+        [color]:
+          current && current.isBot
+            ? null
+            : {
+                id: `bot-${color}`,
+                name: color === 'green' ? 'محمود (بوت)' : color === 'red' ? 'الساحر (بوت)' : color === 'yellow' ? 'صقر (بوت)' : 'النمر (بوت)',
+                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=Bot${color}`,
+                isBot: true,
+                isHost: false,
+                isDeputy: false,
+              },
       };
+      broadcastSeats(next);
+      return next;
     });
   };
 
@@ -1420,10 +1526,50 @@ function LudoApp() {
     });
   };
 
-  const startMatchFromRoom = (broadcast = true, overridePlayers?: 2 | 3 | 4) => {
+  const startMatchFromRoom = (
+    broadcast = true,
+    overridePlayers?: 2 | 3 | 4,
+    overrideSeats?: { [key in PlayerColor]: RoomSeatUser | null }
+  ) => {
     const activePlayers = overridePlayers ?? playerCount;
     if (overridePlayers) setPlayerCount(overridePlayers);
-    const isSpectator = userRole === 'spectator';
+    const workingSeats: { [key in PlayerColor]: RoomSeatUser | null } = {
+      ...(overrideSeats || tableSeats),
+    };
+
+    const allColors: PlayerColor[] = ['blue', 'green', 'red', 'yellow'];
+    const occupiedColors = allColors.filter(c => workingSeats[c] !== null);
+    const shouldAutoFill = !overrideSeats && (fillEmptyWithBots || occupiedColors.length < 2);
+
+    const targetColors: PlayerColor[] =
+      activePlayers === 2
+        ? occupiedColors.length >= 2
+          ? occupiedColors.slice(0, 2)
+          : (['blue', 'green'] as PlayerColor[])
+        : allColors;
+
+    if (shouldAutoFill) {
+      targetColors.forEach((c) => {
+        if (!workingSeats[c]) {
+          workingSeats[c] = {
+            id: `bot-${c}`,
+            name: c === 'green' ? 'محمود (بوت)' : c === 'red' ? 'الساحر (بوت)' : c === 'yellow' ? 'صقر (بوت)' : 'النمر (بوت)',
+            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=Bot${c}`,
+            isBot: true,
+            isHost: false,
+            isDeputy: false,
+          };
+        }
+      });
+    }
+
+    if (activePlayers === 2 && !shouldAutoFill) {
+      // Keep only up to 2 occupied seats if user didn't want bots
+      allColors.forEach((c) => {
+        if (!targetColors.includes(c)) workingSeats[c] = null;
+      });
+    }
+
     const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
       blue: 'none',
       green: 'none',
@@ -1431,22 +1577,22 @@ function LudoApp() {
       yellow: 'none',
     };
 
-    if (activePlayers === 2) {
-      config.blue = tableSeats.blue ? (tableSeats.blue.isBot ? 'bot' : (tableSeats.blue.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-      config.green = tableSeats.green ? (tableSeats.green.isBot ? 'bot' : (tableSeats.green.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-      config.red = 'none';
-      config.yellow = 'none';
-    } else {
-      config.blue = tableSeats.blue ? (tableSeats.blue.isBot ? 'bot' : (tableSeats.blue.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-      config.green = tableSeats.green ? (tableSeats.green.isBot ? 'bot' : (tableSeats.green.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-      config.red = tableSeats.red ? (tableSeats.red.isBot ? 'bot' : (tableSeats.red.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-      config.yellow = tableSeats.yellow ? (tableSeats.yellow.isBot ? 'bot' : (tableSeats.yellow.id === userProfile.id && !isSpectator ? 'human' : 'bot')) : 'bot';
-    }
+    allColors.forEach((c) => {
+      const seat = workingSeats[c];
+      if (!seat) {
+        config[c] = 'none';
+      } else {
+        config[c] = seat.isBot ? 'bot' : 'human';
+      }
+    });
 
+    const firstTurnColor = (['blue', 'red', 'green', 'yellow'] as PlayerColor[]).find(c => config[c] !== 'none') || 'blue';
+
+    setTableSeats(workingSeats);
     setPlayerConfig(config);
     setGameStarted(true);
     setMatchActive(true);
-    setTurn('blue');
+    setTurn(firstTurnColor);
     setConsecutiveSixes(0);
     setExtraRolls(0);
     setWinner(null);
@@ -1469,32 +1615,34 @@ function LudoApp() {
     });
 
     if (broadcast && isRealtimeConnected && (isHost || isDeputy)) {
-      const colors: PlayerColor[] = activePlayers === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
+      const activeColors = allColors.filter(c => config[c] !== 'none');
       void roomRealtimeRef.current?.sendEvent({
         type: 'match_start',
         senderId: userProfile?.id || 'host',
         playerCount: activePlayers,
         piecesCount: pieceCount,
         winRule,
-        activeColors: colors,
+        boardSkin: selectedBoardSkin,
+        activeColors,
         seatAssignments: {
-          ...(tableSeats.blue ? { blue: { id: tableSeats.blue.id, username: tableSeats.blue.name, avatar: tableSeats.blue.avatar, isHuman: !tableSeats.blue.isBot } } : {}),
-          ...(tableSeats.green ? { green: { id: tableSeats.green.id, username: tableSeats.green.name, avatar: tableSeats.green.avatar, isHuman: !tableSeats.green.isBot } } : {}),
-          ...(tableSeats.red ? { red: { id: tableSeats.red.id, username: tableSeats.red.name, avatar: tableSeats.red.avatar, isHuman: !tableSeats.red.isBot } } : {}),
-          ...(tableSeats.yellow ? { yellow: { id: tableSeats.yellow.id, username: tableSeats.yellow.name, avatar: tableSeats.yellow.avatar, isHuman: !tableSeats.yellow.isBot } } : {}),
+          ...(workingSeats.blue ? { blue: { id: workingSeats.blue.id, username: workingSeats.blue.name, avatar: workingSeats.blue.avatar, isHuman: !workingSeats.blue.isBot } } : {}),
+          ...(workingSeats.green ? { green: { id: workingSeats.green.id, username: workingSeats.green.name, avatar: workingSeats.green.avatar, isHuman: !workingSeats.green.isBot } } : {}),
+          ...(workingSeats.red ? { red: { id: workingSeats.red.id, username: workingSeats.red.name, avatar: workingSeats.red.avatar, isHuman: !workingSeats.red.isBot } } : {}),
+          ...(workingSeats.yellow ? { yellow: { id: workingSeats.yellow.id, username: workingSeats.yellow.name, avatar: workingSeats.yellow.avatar, isHuman: !workingSeats.yellow.isBot } } : {}),
         },
       });
     }
 
+    const amISeated = allColors.some(c => workingSeats[c]?.id === userProfile?.id);
     setStatusMessage(
-      isSpectator
-        ? (lang === 'ar' ? '🎙️ أنت في مقاعد المتفرجين على المايك! يمكنك إرسال الهدايا وتشجيع اللاعبين.' : '🎙️ You are spectating from the mic seats! Send gifts & cheer!')
-        : (lang === 'ar' ? '⚔️ بدأت المعركة! دورك الآن، ارمِ النرد لتحريك مقاتليك.' : '⚔️ Match started! Your turn, roll dice to move.')
+      !amISeated
+        ? (lang === 'ar' ? '🎙️ أنت في مقاعد المتفرجين! يمكنك إرسال الهدايا وتشجيع اللاعبين.' : '🎙️ Spectating from voice chairs! Send gifts & cheer!')
+        : (lang === 'ar' ? '⚔️ بدأت المعركة! بالتوفيق لجميع اللاعبين.' : '⚔️ Match started! Good luck!')
     );
   };
   startMatchFromRoomRef.current = startMatchFromRoom;
 
-  // Auto start match when entering room directly with autoStart=true & check room ban/lock/level metadata
+  // Enter room open (without auto-starting a match) & check room ban/lock/level metadata
   useEffect(() => {
     const myId = userProfile?.id || '12842582';
     void fetchRoomMetaFromServer(roomId).then((meta) => {
@@ -1514,7 +1662,12 @@ function LudoApp() {
         }
       }
       if (queryAutoStart) {
-        startMatchFromRoom();
+        setGameStarted(true);
+        setStatusMessage(
+          queryIsHost
+            ? (lang === 'ar' ? '🏰 غرفتك مفتوحة — جهّز شكل الملعب والمقاعد وابدأ الجيم!' : '🏰 Your room is open — setup board & seats to start!')
+            : (lang === 'ar' ? '🎙️ أهلاً بك في الغرفة — اختر مقعدك للعب أو تابع على المايك!' : '🎙️ Welcome — pick a seat to play or spectate!')
+        );
       }
     });
   }, [roomId]);
@@ -1542,6 +1695,12 @@ function LudoApp() {
       },
       onConnectionChange: (connected) => {
         setIsRealtimeConnected(connected);
+        if (connected && myId !== roomHostId) {
+          void handle.sendEvent({
+            type: 'room_sync_request',
+            senderId: myId,
+          });
+        }
       },
       onVoiceStatus: (status) => {
         setVoiceStatus(status);
@@ -1551,34 +1710,6 @@ function LudoApp() {
         if (sig === lastPeersSigRef.current) return;
         lastPeersSigRef.current = sig;
         setRealtimePeers(peers);
-        if (peers.length > 1) {
-          const seatOrder: PlayerColor[] = playerCount === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
-          setTableSeats((prev) => {
-            const next = { ...prev };
-            seatOrder.forEach((c, idx) => {
-              const p = peers[idx];
-              if (p) {
-                next[c] = {
-                  id: p.id,
-                  name: p.username,
-                  avatar: p.avatar || '/laugh_emote.png',
-                  isBot: false,
-                  isHost: p.isHost || idx === 0,
-                  isDeputy: false,
-                  isMuted: p.isMuted,
-                };
-              }
-            });
-            return next;
-          });
-          setPlayerConfig((prev) => {
-            const next = { ...prev };
-            seatOrder.forEach((c, idx) => {
-              if (peers[idx]) next[c] = 'human';
-            });
-            return next;
-          });
-        }
       },
       onEvent: (ev: LudoRoomEvent) => {
         if (ev.type === 'dice_roll') {
@@ -1709,6 +1840,53 @@ function LudoApp() {
           setRoomMicMode(ev.micMode);
           setRoomXp(ev.roomXp);
           setModeratorIds(ev.deputyIds);
+        } else if (ev.type === 'room_config') {
+          if (ev.boardSkin) setSelectedBoardSkin(ev.boardSkin);
+          if (ev.playerCount) setPlayerCount(ev.playerCount as 2 | 4);
+          if (ev.piecesCount) setPieceCount(ev.piecesCount);
+          if (ev.winRule) setWinRule(ev.winRule);
+        } else if (ev.type === 'seat_sync') {
+          const syncedSeats: { [key in PlayerColor]: RoomSeatUser | null } = {
+            blue: ev.seats.blue || null,
+            green: ev.seats.green || null,
+            red: ev.seats.red || null,
+            yellow: ev.seats.yellow || null,
+          };
+          setTableSeats(syncedSeats);
+          const myIdNow = userProfile?.id || '12842582';
+          const amSeated = (Object.values(syncedSeats) as Array<RoomSeatUser | null>).some(s => s?.id === myIdNow);
+          setUserRole(amSeated ? 'player' : 'spectator');
+        } else if (ev.type === 'seat_kick') {
+          const myIdNow = userProfile?.id || '12842582';
+          setTableSeats(prev => ({ ...prev, [ev.seatColor]: null }));
+          if (ev.targetId === myIdNow) {
+            setUserRole('spectator');
+            setStatusMessage(
+              lang === 'ar'
+                ? '🚫 قام صاحب الغرفة بإزالتك من مقعد اللعب — ما زلت في الغرفة كمتفرج'
+                : '🚫 Host removed you from the game seat — staying in room as spectator'
+            );
+          }
+          setPlayerConfig(prev => {
+            if (!prev[ev.seatColor] || prev[ev.seatColor] === 'none') return prev;
+            return { ...prev, [ev.seatColor]: 'none' };
+          });
+        } else if (ev.type === 'room_sync_request') {
+          if (myId === roomHostId) {
+            void roomRealtimeRef.current?.sendEvent({
+              type: 'room_config',
+              senderId: myId,
+              boardSkin: selectedBoardSkin,
+              playerCount,
+              piecesCount: pieceCount,
+              winRule,
+            });
+            void roomRealtimeRef.current?.sendEvent({
+              type: 'seat_sync',
+              senderId: myId,
+              seats: tableSeats,
+            });
+          }
         } else if (ev.type === 'match_end') {
           setMatchActive(false);
           setWinner(null);
@@ -1719,13 +1897,28 @@ function LudoApp() {
           setFootprints([]);
           setStatusMessage(
             lang === 'ar'
-              ? '🛑 أنهى صاحب الغرفة الجيم — الغرفة ما زالت مفتوحة!'
-              : '🛑 Host ended the match — room stays open!'
+              ? '🛑 أغلق صاحب الغرفة الجيم — الغرفة الآن جاهزة لإعداد جيم جديد!'
+              : '🛑 Host closed the match — room ready for new setup!'
           );
         } else if (ev.type === 'match_start') {
+          if (ev.boardSkin) setSelectedBoardSkin(ev.boardSkin);
           if (ev.piecesCount) setPieceCount(ev.piecesCount);
           if (ev.winRule) setWinRule(ev.winRule);
-          startMatchFromRoomRef.current(false, (ev.playerCount as 2 | 4) || 4);
+          const incomingSeats: { [key in PlayerColor]: RoomSeatUser | null } = {
+            blue: ev.seatAssignments?.blue
+              ? { id: ev.seatAssignments.blue.id, name: ev.seatAssignments.blue.username, avatar: ev.seatAssignments.blue.avatar, isBot: !ev.seatAssignments.blue.isHuman, isHost: ev.seatAssignments.blue.id === roomHostId }
+              : null,
+            green: ev.seatAssignments?.green
+              ? { id: ev.seatAssignments.green.id, name: ev.seatAssignments.green.username, avatar: ev.seatAssignments.green.avatar, isBot: !ev.seatAssignments.green.isHuman, isHost: ev.seatAssignments.green.id === roomHostId }
+              : null,
+            red: ev.seatAssignments?.red
+              ? { id: ev.seatAssignments.red.id, name: ev.seatAssignments.red.username, avatar: ev.seatAssignments.red.avatar, isBot: !ev.seatAssignments.red.isHuman, isHost: ev.seatAssignments.red.id === roomHostId }
+              : null,
+            yellow: ev.seatAssignments?.yellow
+              ? { id: ev.seatAssignments.yellow.id, name: ev.seatAssignments.yellow.username, avatar: ev.seatAssignments.yellow.avatar, isBot: !ev.seatAssignments.yellow.isHuman, isHost: ev.seatAssignments.yellow.id === roomHostId }
+              : null,
+          };
+          startMatchFromRoomRef.current(false, (ev.playerCount as 2 | 4) || 4, incomingSeats);
         }
       },
     });
@@ -1820,14 +2013,21 @@ function LudoApp() {
     return () => clearTimeout(timer);
   }, [matchActive, turn, gameState, playerConfig, rollingDicePlayer, winner]);
 
-  // 💾 Restore Active Match Session on Mount (استئناف اللعبة عند الخروج أو التحديث)
+  // 💾 Restore Active Match Session on Mount ONLY if matching the exact same roomId
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const saved = localStorage.getItem('ludo_active_match_session');
       if (saved) {
         const data = JSON.parse(saved);
-        if (data && data.gameStarted && !data.winner && (Date.now() - (data.timestamp || 0) < 4 * 60 * 60 * 1000)) {
+        if (
+          data &&
+          data.roomId === roomId &&
+          data.gameStarted &&
+          data.matchActive === true &&
+          !data.winner &&
+          (Date.now() - (data.timestamp || 0) < 4 * 60 * 60 * 1000)
+        ) {
           if (data.tokens && data.tokens.length > 0) setTokens(data.tokens);
           if (data.turn) setTurn(data.turn);
           if (data.gameState) setGameState(data.gameState);
@@ -1840,7 +2040,7 @@ function LudoApp() {
           if (data.roomHostId) setRoomHostId(data.roomHostId);
           if (data.roomHostName) setRoomHostName(data.roomHostName);
           setGameStarted(true);
-          setMatchActive(data.matchActive !== false);
+          setMatchActive(true);
           setStatusMessage(
             lang === 'ar'
               ? '🔄 تم استئناف اللعبة السابقة بنجاح من حيث توقفت!'
@@ -1851,7 +2051,7 @@ function LudoApp() {
     } catch (e) {
       console.warn('Could not restore ludo match session', e);
     }
-  }, []);
+  }, [roomId]);
 
   // 💾 Auto-save Active Match Session on state updates (skip intermediate step animations)
   useEffect(() => {
@@ -1863,6 +2063,7 @@ function LudoApp() {
     }
     try {
       const session = {
+        roomId,
         gameStarted: true,
         matchActive: true,
         turn,
@@ -1882,7 +2083,7 @@ function LudoApp() {
     } catch (e) {
       console.warn('Could not save ludo match session', e);
     }
-  }, [gameStarted, matchActive, winner, isAnimating, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
+  }, [roomId, gameStarted, matchActive, winner, isAnimating, turn, gameState, tokens, diceValues, playerConfig, playerCount, pieceCount, selectedBoardSkin, tableSeats, roomHostId, roomHostName]);
 
   const getValidMoves = (playerColor: PlayerColor, diceVal: number) => {
     const validTokens: Token[] = [];
@@ -2138,9 +2339,28 @@ function LudoApp() {
     }, 200);
   };
 
+  const isTurnHumanOffline = (color: PlayerColor) => {
+    const uid = tableSeats[color]?.id;
+    return (
+      isRealtimeConnected &&
+      playerConfig[color] === 'human' &&
+      color !== mySeatColor &&
+      !!uid &&
+      !realtimePeers.some((p) => p.id === uid)
+    );
+  };
+
   const handleTokenClick = (token: Token, fromRemote = false, forcedDiceVal?: number) => {
     if (!matchActive || gameState !== 'waiting_move' || token.color !== turn || isAnimatingRef.current || winner) return;
-    if (!fromRemote && isRealtimeConnected && playerConfig[token.color] !== 'bot' && mySeatColor !== token.color) return;
+    if (
+      !fromRemote &&
+      isRealtimeConnected &&
+      playerConfig[token.color] !== 'bot' &&
+      mySeatColor !== token.color &&
+      !(canDriveBots && isTurnHumanOffline(token.color))
+    ) {
+      return;
+    }
 
     const liveToken = tokens.find(t => t.id === token.id) || token;
     const diceVal = forcedDiceVal ?? diceValues[turn];
@@ -2218,7 +2438,15 @@ function LudoApp() {
 
   const rollDice = (forcedVal?: number, fromRemote = false) => {
     if (!matchActive || rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || winner) return;
-    if (!fromRemote && isRealtimeConnected && playerConfig[turn] !== 'bot' && mySeatColor !== turn) return;
+    if (
+      !fromRemote &&
+      isRealtimeConnected &&
+      playerConfig[turn] !== 'bot' &&
+      mySeatColor !== turn &&
+      !(canDriveBots && isTurnHumanOffline(turn))
+    ) {
+      return;
+    }
 
     setRollingDicePlayer(turn);
     playDiceRollSound();
@@ -2304,7 +2532,7 @@ function LudoApp() {
         setRollingDicePlayer(null);
         setGameState('waiting_move');
         const isLocalController =
-          playerConfig[turn] === 'bot' ? (!isRealtimeConnected || isHost) : (!isRealtimeConnected || mySeatColor === turn);
+          playerConfig[turn] === 'bot' ? canDriveBots : (!isRealtimeConnected || mySeatColor === turn);
         if (isLocalController) {
           setTimeout(() => {
             handleTokenClickRef.current(validMoves[0]);
@@ -2319,9 +2547,9 @@ function LudoApp() {
 
   rollDiceRef.current = rollDice;
 
-  // Bot autoplay logic (host-authoritative when room is online)
+  // Bot autoplay logic (runs on Host, or earliest online peer when Host is absent, or offline)
   useEffect(() => {
-    if (gameStarted && matchActive && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && (!isRealtimeConnected || isHost)) {
+    if (gameStarted && matchActive && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && canDriveBots) {
       if (gameState === 'waiting_roll') {
         const timer = setTimeout(() => {
           rollDice();
@@ -2333,12 +2561,18 @@ function LudoApp() {
           if (validMoves.length > 0) {
             const moveOut = validMoves.find(t => t.position === -1);
             handleTokenClick(moveOut || validMoves[Math.floor(Math.random() * validMoves.length)]);
+          } else {
+            const nextPlayer = getNextActivePlayer(turn);
+            setTurn(nextPlayer);
+            setConsecutiveSixes(0);
+            setExtraRolls(0);
+            setGameState('waiting_roll');
           }
         }, 800);
         return () => clearTimeout(timer);
       }
     }
-  }, [turn, rollingDicePlayer, gameStarted, matchActive, playerConfig, gameState, diceValues, winner, isRealtimeConnected, isHost]);
+  }, [turn, rollingDicePlayer, gameStarted, matchActive, playerConfig, gameState, diceValues, winner, canDriveBots]);
 
   // ⏱️ Fast Turn Countdown Timer (10 seconds total, CSS-driven 60fps ring + single timeout for zero React re-renders)
   const TURN_TIMEOUT_SECONDS = 10;
@@ -2346,7 +2580,9 @@ function LudoApp() {
   useEffect(() => {
     if (!gameStarted || !matchActive || winner || isAnimating) return;
     const isMyControlledTurn =
-      playerConfig[turn] === 'bot' ? (!isRealtimeConnected || isHost) : (!isRealtimeConnected || mySeatColor === turn);
+      playerConfig[turn] === 'bot'
+        ? canDriveBots
+        : (!isRealtimeConnected || mySeatColor === turn || (canDriveBots && isTurnHumanOffline(turn)));
     if (!isMyControlledTurn) return;
 
     const timeout = setTimeout(() => {
@@ -2371,7 +2607,7 @@ function LudoApp() {
     }, TURN_TIMEOUT_SECONDS * 1000);
 
     return () => clearTimeout(timeout);
-  }, [gameStarted, matchActive, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, isHost, mySeatColor]);
+  }, [gameStarted, matchActive, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, canDriveBots, mySeatColor]);
 
   const SpaceToken = useMemo(() => {
     const theme = selectedBoardSkin || 'classic';
@@ -3544,11 +3780,9 @@ function LudoApp() {
       },
     }[baseColor];
 
-    const isSpectator = userRole === 'spectator';
-    const dispName = isBlue
-      ? (isSpectator ? (lang === 'ar' ? 'البرنس (الأزرق)' : 'Prince (Blue)') : (userProfile?.username || colorConfig.defaultName))
-      : colorConfig.defaultName;
-    const avatarImg = isBlue ? (userProfile?.avatar_url || colorConfig.avatarUrl) : colorConfig.avatarUrl;
+    const seatOccupant = tableSeats[baseColor];
+    const dispName = seatOccupant?.name || (isBot ? colorConfig.botName : colorConfig.defaultName);
+    const avatarImg = seatOccupant?.avatar || colorConfig.avatarUrl;
     const impact = activeImpacts[baseColor];
     const isTop = baseColor === 'green' || baseColor === 'yellow';
     const slotIndices = [0, 1, 2, 3];
@@ -4410,20 +4644,20 @@ function LudoApp() {
                 {statusMessage}
               </div>
 
-              {/* End Ongoing Match (stay in open room) for Host / Admin */}
+              {/* Close Ongoing Match (stay in empty open room) for Host / Admin */}
               {canAccessSettings && matchActive && !winner && (
                 <button
                   type="button"
                   onClick={handleEndMatchStayInRoom}
                   className="px-2 py-1 rounded-full bg-rose-600/85 hover:bg-rose-500 text-white font-black text-[9px] border border-rose-300/40 shadow shrink-0 cursor-pointer active:scale-95"
-                  title={lang === 'ar' ? 'إنهاء الجيم والبقاء في الروم' : 'End Match (Stay in Room)'}
+                  title={lang === 'ar' ? 'إغلاق الجيم وتفريغ الطاولة للإعداد' : 'Close Match (Return to Room Setup)'}
                 >
-                  🛑 {lang === 'ar' ? 'إنهاء الجيم' : 'End Match'}
+                  🛑 {lang === 'ar' ? 'إغلاق الجيم' : 'Close Game'}
                 </button>
               )}
 
-              {/* Join Board Button (shown when guest got mic permission or room allows joining play) */}
-              {hasMicPermission && userRole === 'spectator' && !winner && (
+              {/* Join Board Button (shown when match is not active yet and user is spectator) */}
+              {!matchActive && userRole === 'spectator' && !winner && (
                 <button
                   type="button"
                   onClick={handleParticipateInMatch}
@@ -4506,52 +4740,250 @@ function LudoApp() {
               {renderTokensLayer()}
             </div>
 
-            {/* Idle Room Overlay when no match is active — room stays open for voice mics, chat & gifts */}
+            {/* Empty Room / Game Creation Setup Box when no match is active */}
             {!matchActive && !winner && (
-              <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="absolute inset-0 z-40 rounded-2xl bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-5 text-center gap-3">
-                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-black">
-                  🏰 {roomTitle} • ⭐ Lv.{calculateRoomLevel(roomXp).level}
-                </div>
-                <h3 className="text-base sm:text-lg font-black text-white">
-                  {lang === 'ar' ? 'الغرفة مفتوحة — الطاولة بانتظار بدء جيم جديد' : 'Room Open — Ready for a New Match'}
-                </h3>
-                <p className="text-[11px] text-slate-300 max-w-xs leading-relaxed">
-                  {lang === 'ar'
-                    ? 'تم إنهاء الجيم السابق مع إبقاء الغرفة مفتوحة. المايكات والشات والهدايا تعمل بشكل طبيعي.'
-                    : 'Previous match ended while the room stays open. Mics, chat & gifts remain live.'}
-                </p>
-
-                {canAccessSettings ? (
-                  <div className="flex flex-col items-center gap-2.5 w-full max-w-[260px] pt-1">
-                    <div className="flex items-center gap-2 w-full">
-                      {[2, 4].map((cnt) => (
-                        <button
-                          key={cnt}
-                          type="button"
-                          onClick={() => setPlayerCount(cnt as 2 | 4)}
-                          className={`flex-1 py-2 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                            playerCount === cnt
-                              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                              : 'bg-slate-900 text-slate-300 border-white/15 hover:border-amber-400/50'
-                          }`}
-                        >
-                          {cnt === 2 ? (lang === 'ar' ? '⚔️ 2 لاعبين' : '⚔️ 2 Players') : (lang === 'ar' ? '👑 4 لاعبين' : '👑 4 Players')}
-                        </button>
-                      ))}
+              <div
+                dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                className="absolute inset-0 z-40 rounded-2xl bg-slate-950/95 backdrop-blur-md border border-emerald-400/40 flex flex-col justify-between p-2.5 sm:p-3.5 overflow-y-auto no-scrollbar gap-2"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-1.5 shrink-0">
+                  <div className="min-w-0 text-right">
+                    <div className="text-[11px] sm:text-xs font-black text-white truncate flex items-center gap-1.5">
+                      <span>🏰</span>
+                      <span className="truncate">{roomTitle}</span>
                     </div>
+                    <p className="text-[9px] text-emerald-300 font-bold">
+                      {canAccessSettings
+                        ? (lang === 'ar' ? 'أنت صاحب الغرفة — أنشئ شكل الملعب وأدر المقاعد' : 'Room Owner — configure board & manage seats')
+                        : (lang === 'ar' ? 'الغرفة مفتوحة — اختر مكانك للعب أو تابع على المايك' : 'Room open — pick a seat to play or spectate')}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] font-black shrink-0">
+                    ⭐ Lv.{calculateRoomLevel(roomXp).level}
+                  </span>
+                </div>
+
+                {/* 1. Board Skin / Shape Selector */}
+                <div className="space-y-1 shrink-0">
+                  <div className="flex items-center justify-between text-[10px] font-black text-slate-300">
+                    <span>🎨 {lang === 'ar' ? 'شكل الملعب:' : 'Board Theme:'}</span>
+                    <span className="text-amber-300">{BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(Object.keys(BOARD_SKINS) as BoardTheme[]).map((themeKey) => {
+                      const skin = BOARD_SKINS[themeKey];
+                      const active = selectedBoardSkin === themeKey;
+                      return (
+                        <button
+                          key={themeKey}
+                          type="button"
+                          disabled={!canAccessSettings}
+                          onClick={() => handleSelectTheme(themeKey)}
+                          className={`p-1 rounded-xl border flex flex-col items-center gap-0.5 transition-all ${
+                            active
+                              ? 'bg-amber-500/25 border-amber-400 text-amber-200 ring-1 ring-amber-400 shadow'
+                              : 'bg-slate-900/70 border-slate-800 text-slate-400'
+                          } ${canAccessSettings ? 'cursor-pointer hover:border-amber-400/60' : 'opacity-80 cursor-default'}`}
+                        >
+                          <img src={skin.image} alt={skin.nameEn} className="w-full h-7 sm:h-9 rounded-lg object-cover border border-white/10" />
+                          <span className="text-[8px] sm:text-[9px] font-black truncate w-full text-center">
+                            {skin.icon} {lang === 'ar' ? skin.nameAr.split(' ')[0] : skin.nameEn.split(' ')[0]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Quick Match Rules (Players, Pieces, Win Rule) */}
+                <div className="grid grid-cols-3 gap-1.5 text-[9px] sm:text-[10px] shrink-0">
+                  <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-1 flex gap-1">
+                    {([2, 4] as const).map((cnt) => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        disabled={!canAccessSettings}
+                        onClick={() => {
+                          setPlayerCount(cnt);
+                          broadcastRoomConfig(selectedBoardSkin, cnt, pieceCount, winRule);
+                        }}
+                        className={`flex-1 py-1 rounded-lg font-black transition-all ${
+                          playerCount === cnt ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                        } ${canAccessSettings ? 'cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {cnt} {lang === 'ar' ? 'لاعب' : 'P'}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-1 flex gap-1">
+                    {([2, 4] as const).map((pc) => (
+                      <button
+                        key={pc}
+                        type="button"
+                        disabled={!canAccessSettings}
+                        onClick={() => {
+                          setPieceCount(pc);
+                          broadcastRoomConfig(selectedBoardSkin, playerCount, pc, winRule);
+                        }}
+                        className={`flex-1 py-1 rounded-lg font-black transition-all ${
+                          pieceCount === pc ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                        } ${canAccessSettings ? 'cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {pc}♟️
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-1 flex gap-1">
+                    {(['first', 'all'] as const).map((rule) => (
+                      <button
+                        key={rule}
+                        type="button"
+                        disabled={!canAccessSettings}
+                        onClick={() => {
+                          setWinRule(rule);
+                          broadcastRoomConfig(selectedBoardSkin, playerCount, pieceCount, rule);
+                        }}
+                        className={`flex-1 py-1 rounded-lg font-black transition-all ${
+                          winRule === rule ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                        } ${canAccessSettings ? 'cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {rule === 'first' ? (lang === 'ar' ? 'أول' : '1st') : (lang === 'ar' ? 'الكل' : 'All')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. 4 Interactive Seats Grid (Join any seat + Host remove player / toggle bot) */}
+                <div className="space-y-1 flex-1 min-h-0 flex flex-col justify-center">
+                  <div className="flex items-center justify-between text-[10px] font-black text-slate-300">
+                    <span>🪑 {lang === 'ar' ? 'مقاعد اللعب (انضم في المكان اللي يعجبك):' : 'Table Seats (Join any spot):'}</span>
+                    {canAccessSettings && (
+                      <label className="flex items-center gap-1 text-[9px] text-amber-300 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={fillEmptyWithBots}
+                          onChange={(e) => setFillEmptyWithBots(e.target.checked)}
+                          className="accent-amber-400 w-3 h-3 cursor-pointer"
+                        />
+                        <span>{lang === 'ar' ? 'تكميل الفاضي ببوت' : 'Fill empty w/ bots'}</span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(
+                      [
+                        { color: 'green' as PlayerColor, labelAr: 'الأخضر', labelEn: 'Green', cls: 'border-emerald-500/50 bg-emerald-950/35', dot: 'bg-emerald-500' },
+                        { color: 'yellow' as PlayerColor, labelAr: 'الأصفر', labelEn: 'Yellow', cls: 'border-amber-400/50 bg-amber-950/35', dot: 'bg-amber-400' },
+                        { color: 'red' as PlayerColor, labelAr: 'الأحمر', labelEn: 'Red', cls: 'border-rose-500/50 bg-rose-950/35', dot: 'bg-rose-500' },
+                        { color: 'blue' as PlayerColor, labelAr: 'الأزرق', labelEn: 'Blue', cls: 'border-blue-500/50 bg-blue-950/35', dot: 'bg-blue-500' },
+                      ] as const
+                    ).map((slot) => {
+                      const occupant = tableSeats[slot.color];
+                      const isMine = occupant?.id === (userProfile?.id || '12842582');
+                      return (
+                        <div
+                          key={slot.color}
+                          className={`rounded-xl border p-1.5 flex items-center justify-between gap-1.5 min-h-[46px] ${slot.cls}`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            {occupant ? (
+                              <>
+                                <img
+                                  src={occupant.avatar || '/laugh_emote.png'}
+                                  alt={occupant.name}
+                                  className="w-7 h-7 rounded-full object-cover border border-white/30 shrink-0 bg-slate-900"
+                                />
+                                <div className="min-w-0 text-right">
+                                  <div className="text-[10px] font-black text-white truncate flex items-center gap-1">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${slot.dot}`} />
+                                    <span className="truncate">{occupant.name}</span>
+                                  </div>
+                                  <span className="text-[8px] text-slate-300 block">
+                                    {occupant.isBot ? '🤖 بوت' : occupant.isHost ? '👑 المالك' : isMine ? '✨ أنت' : '⚔️ لاعب'}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${slot.dot}`} />
+                                <span className="text-[10px] font-bold text-slate-300 truncate">
+                                  {lang === 'ar' ? `${slot.labelAr} (فاضي)` : `${slot.labelEn} (Open)`}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!occupant ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleTakePlayerSeat(slot.color)}
+                                  className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] cursor-pointer active:scale-95"
+                                >
+                                  {lang === 'ar' ? 'انضم' : 'Join'}
+                                </button>
+                                {canAccessSettings && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleBotOnSeat(slot.color)}
+                                    className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-white/15 font-black text-[9px] cursor-pointer"
+                                    title={lang === 'ar' ? 'إضافة بوت' : 'Add Bot'}
+                                  >
+                                    🤖
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {isMine && (
+                                  <button
+                                    type="button"
+                                    onClick={handleLeavePlayerSeat}
+                                    className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[8px] cursor-pointer border border-white/15"
+                                    title={lang === 'ar' ? 'مغادرة المقعد' : 'Leave seat'}
+                                  >
+                                    {lang === 'ar' ? 'قيام' : 'Leave'}
+                                  </button>
+                                )}
+                                {canAccessSettings && !isMine && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFromSeat(slot.color)}
+                                    className="px-1.5 py-1 rounded-lg bg-rose-600/85 hover:bg-rose-500 text-white font-black text-[9px] cursor-pointer active:scale-95"
+                                    title={lang === 'ar' ? 'إزالة من اللعبة' : 'Remove from game'}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Launch Match / Waiting Footer */}
+                <div className="shrink-0 pt-0.5">
+                  {canAccessSettings ? (
                     <button
                       type="button"
                       onClick={() => startMatchFromRoom(true)}
-                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg cursor-pointer active:scale-95"
+                      className="w-full py-2 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg cursor-pointer active:scale-98 flex items-center justify-center gap-1.5"
                     >
-                      🚀 {lang === 'ar' ? 'بدء جيم جديد بالروم الآن' : 'Start New Match in Room'}
+                      <span>🚀</span>
+                      <span>{lang === 'ar' ? 'إنشاء وبدء الجيم الآن' : 'Create & Start Match Now'}</span>
                     </button>
-                  </div>
-                ) : (
-                  <div className="px-4 py-2 rounded-xl bg-slate-900/90 border border-amber-400/30 text-amber-200 text-xs font-bold">
-                    ⏳ {lang === 'ar' ? 'بانتظار صاحب الغرفة أو المشرف لبدء الجيم الجديد...' : 'Waiting for Host/Admin to launch a new match...'}
-                  </div>
-                )}
+                  ) : (
+                    <div className="w-full py-2 px-3 rounded-xl bg-slate-900/90 border border-amber-400/30 text-amber-200 text-[10px] font-bold text-center">
+                      ⏳ {lang === 'ar' ? 'بانتظار صاحب الغرفة لبدء الجيم — اختر مقعدك فوق للمشاركة!' : 'Waiting for Host to start — pick your seat above!'}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -4976,6 +5408,21 @@ function LudoApp() {
                     >
                       <span className="text-sm">{selectedUserForModeration.isDeputy ? '⭐' : '👑'}</span>
                       <span>{selectedUserForModeration.isDeputy ? 'سحب الإشراف' : 'منح إشراف'}</span>
+                    </button>
+                  )}
+
+                  {/* Remove from current game seat (stays in room) */}
+                  {selectedUserForModeration.seatColor && !selectedUserForModeration.isHost && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleRemoveFromSeat(selectedUserForModeration.seatColor!);
+                        setSelectedUserForModeration(null);
+                      }}
+                      className="col-span-2 p-2 rounded-xl border border-rose-500/70 bg-rose-950/60 hover:bg-rose-900/80 text-rose-200 flex items-center justify-center gap-1.5 text-[11px] font-black transition-all cursor-pointer"
+                    >
+                      <span>🚫</span>
+                      <span>{lang === 'ar' ? 'إزالة من اللعبة (تفريغ المقعد والبقاء بالروم)' : 'Remove from Game Seat (Stay in Room)'}</span>
                     </button>
                   )}
 
