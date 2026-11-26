@@ -7,6 +7,7 @@ import {
   CoinGoldIcon,
   CrownIcon,
   HelpQuestionIcon,
+  LockClosedIcon,
   PeaceDoveIcon,
   PeaceWarIcon,
   SettingsGearIcon,
@@ -16,6 +17,7 @@ import {
   TrophyCupIcon,
   WarSwordsIcon,
 } from './ludoIcons';
+import { calculateRoomLevel } from './ludoRealtime';
 
 export function GiftPickerModal({
   lang,
@@ -350,6 +352,7 @@ export function QuickChatModal({
   onClose,
   quickInputText,
   setQuickInputText,
+  isChatMuted = false,
   onSendMessage,
 }: {
   lang: string;
@@ -357,6 +360,7 @@ export function QuickChatModal({
   onClose: () => void;
   quickInputText: string;
   setQuickInputText: (v: string) => void;
+  isChatMuted?: boolean;
   onSendMessage: (txt: string) => void;
 }) {
   if (!open) return null;
@@ -383,51 +387,62 @@ export function QuickChatModal({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
-          {phrases.map((phrase, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => {
-                onSendMessage(phrase);
-                onClose();
-              }}
-              className="p-2 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-800 hover:border-amber-400/50 text-[11px] text-slate-200 font-bold text-center active:scale-95 transition-all cursor-pointer"
-            >
-              {phrase}
-            </button>
-          ))}
-        </div>
+        {isChatMuted ? (
+          <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-500/50 text-center text-xs font-bold text-rose-200 space-y-1">
+            <div>🔇 {lang === 'ar' ? 'أنت مكتوم عن الكتابة حالياً' : 'You are chat-muted'}</div>
+            <p className="text-[10px] text-rose-300/80">
+              {lang === 'ar' ? 'يمكنك البقاء ومتابعة الغرفة، لكن الكتابة معطلة من المشرف.' : 'You may remain in the room, but chat is disabled by a moderator.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-1.5">
+              {phrases.map((phrase, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    onSendMessage(phrase);
+                    onClose();
+                  }}
+                  className="p-2 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-800 hover:border-amber-400/50 text-[11px] text-slate-200 font-bold text-center active:scale-95 transition-all cursor-pointer"
+                >
+                  {phrase}
+                </button>
+              ))}
+            </div>
 
-        <div className="flex items-center gap-1.5 pt-1">
-          <input
-            type="text"
-            value={quickInputText}
-            onChange={(e) => setQuickInputText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && quickInputText.trim()) {
-                onSendMessage(quickInputText.trim());
-                setQuickInputText('');
-                onClose();
-              }
-            }}
-            placeholder={lang === 'ar' ? 'اكتب رسالة للغرفة...' : 'Type message...'}
-            className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              if (quickInputText.trim()) {
-                onSendMessage(quickInputText.trim());
-                setQuickInputText('');
-                onClose();
-              }
-            }}
-            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs active:scale-95 transition-all cursor-pointer"
-          >
-            {lang === 'ar' ? 'إرسال' : 'Send'}
-          </button>
-        </div>
+            <div className="flex items-center gap-1.5 pt-1">
+              <input
+                type="text"
+                value={quickInputText}
+                onChange={(e) => setQuickInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && quickInputText.trim()) {
+                    onSendMessage(quickInputText.trim());
+                    setQuickInputText('');
+                    onClose();
+                  }
+                }}
+                placeholder={lang === 'ar' ? 'اكتب رسالة للغرفة...' : 'Type message...'}
+                className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (quickInputText.trim()) {
+                    onSendMessage(quickInputText.trim());
+                    setQuickInputText('');
+                    onClose();
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs active:scale-95 transition-all cursor-pointer"
+              >
+                {lang === 'ar' ? 'إرسال' : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -549,19 +564,21 @@ export function SettingsModal({
   isMuted,
   onToggleMute,
   isMicOn,
+  hasMicPermission,
   onToggleMic,
   musicTrackName,
   isPlayingMusic,
   onOpenMusic,
   onOpenIntro,
   onOpenH2H,
-  gameStarted,
-  onReturnToRoom,
   canAccessSettings,
+  isHost,
+  isRoomLocked,
+  onToggleRoomLock,
   selectedBoardSkin,
   onSelectTheme,
   roomMicMode,
-  onToggleMicMode,
+  onCycleMicMode,
   onResetGame,
   MicIconComponent,
 }: {
@@ -572,19 +589,21 @@ export function SettingsModal({
   isMuted: boolean;
   onToggleMute: () => void;
   isMicOn: boolean;
+  hasMicPermission: boolean;
   onToggleMic: () => void;
   musicTrackName: string | null;
   isPlayingMusic: boolean;
   onOpenMusic: () => void;
   onOpenIntro: () => void;
   onOpenH2H: () => void;
-  gameStarted: boolean;
-  onReturnToRoom: () => void;
   canAccessSettings: boolean;
+  isHost: boolean;
+  isRoomLocked: boolean;
+  onToggleRoomLock: () => void;
   selectedBoardSkin: BoardTheme;
   onSelectTheme: (t: BoardTheme) => void;
-  roomMicMode: 'all' | 'admins_only';
-  onToggleMicMode: () => void;
+  roomMicMode: 'approval' | 'all' | 'admins_only';
+  onCycleMicMode: () => void;
   onResetGame: () => void;
   MicIconComponent: React.FC<{ muted?: boolean; className?: string }>;
 }) {
@@ -632,11 +651,23 @@ export function SettingsModal({
               type="button"
               onClick={onToggleMic}
               className={`p-2 rounded-xl border font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                isMicOn ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' : 'bg-rose-950/80 text-rose-300 border-rose-800'
+                !hasMicPermission
+                  ? 'bg-slate-900 text-slate-400 border-slate-700'
+                  : isMicOn
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700'
+                  : 'bg-rose-950/80 text-rose-300 border-rose-800'
               }`}
             >
-              <MicIconComponent muted={!isMicOn} className="w-4 h-4" />
-              <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic Active') : lang === 'ar' ? 'المايك مكتوم' : 'Mic Off'}</span>
+              <MicIconComponent muted={!hasMicPermission || !isMicOn} className="w-4 h-4" />
+              <span>
+                {!hasMicPermission
+                  ? (lang === 'ar' ? 'بدون مايك' : 'No Mic')
+                  : isMicOn
+                  ? (lang === 'ar' ? 'المايك نشط' : 'Mic Active')
+                  : lang === 'ar'
+                  ? 'المايك مكتوم'
+                  : 'Mic Off'}
+              </span>
             </button>
 
             <button
@@ -669,28 +700,23 @@ export function SettingsModal({
                 onClose();
                 onOpenH2H();
               }}
-              className="p-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+              className="col-span-2 p-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>🏆</span>
+              <TrophyCupIcon className="w-4 h-4 text-amber-300" />
               <span>{lang === 'ar' ? 'سجل المواجهات' : 'H2H Stats'}</span>
             </button>
-
-            {gameStarted && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onReturnToRoom();
-                }}
-                className="p-2 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>🏰</span>
-                <span>{lang === 'ar' ? 'مجلس الغرفة' : 'Room Lounge'}</span>
-              </button>
-            )}
           </div>
 
-          {canAccessSettings && (
+          {!canAccessSettings ? (
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 text-center text-[11px] text-slate-400 flex items-center justify-center gap-2">
+              <LockClosedIcon className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                {lang === 'ar'
+                  ? 'إعدادات الغرفة مقتصرة على صاحب الغرفة والمشرفين المعيّنين فقط.'
+                  : 'Room settings are restricted to the Room Owner and appointed Admins.'}
+              </span>
+            </div>
+          ) : (
             <>
               <div className="space-y-1 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
                 <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'تصميم الرقعة (الثيم):' : 'Board Theme:'}</span>
@@ -714,24 +740,46 @@ export function SettingsModal({
 
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
                 <div>
-                  <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'صلاحيات المايك:' : 'Mic Mode:'}</span>
+                  <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'نظام الصعود على المايك:' : 'Mic Entry Mode:'}</span>
                   <span className="text-[9px] text-slate-500">
-                    {roomMicMode === 'all' ? (lang === 'ar' ? 'متاح للجميع' : 'Open for all') : lang === 'ar' ? 'للمشرفين فقط' : 'Admins only'}
+                    {roomMicMode === 'approval'
+                      ? (lang === 'ar' ? 'بطلب وموافقة المالك/المشرف' : 'Owner/Admin Approval')
+                      : roomMicMode === 'all'
+                      ? (lang === 'ar' ? 'مفتوح مباشرة للجميع' : 'Open for all')
+                      : (lang === 'ar' ? 'للمشرفين فقط' : 'Admins only')}
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={onToggleMicMode}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
-                    roomMicMode === 'all' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
-                  }`}
+                  onClick={onCycleMicMode}
+                  className="px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer bg-amber-950 text-amber-300 border border-amber-700"
                 >
-                  {roomMicMode === 'all' ? '🎙️ للجميع' : '👑 للمشرفين'}
+                  {roomMicMode === 'approval' ? '✋ بإذن' : roomMicMode === 'all' ? '🎙️ حر' : '👑 مشرفين'}
                 </button>
               </div>
 
+              {isHost && (
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div>
+                    <span className="text-slate-300 font-bold block">{lang === 'ar' ? 'حالة الغرفة الدائمة:' : 'Room Access:'}</span>
+                    <span className="text-[9px] text-slate-500">
+                      {isRoomLocked ? (lang === 'ar' ? 'مقفلة مؤقتاً أمام الزوار' : 'Temporarily closed') : (lang === 'ar' ? 'مفتوحة لاستقبال الأعضاء' : 'Open to join')}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onToggleRoomLock}
+                    className={`px-3 py-1 rounded-lg text-xs font-black cursor-pointer border ${
+                      isRoomLocked ? 'bg-rose-950 text-rose-300 border-rose-700' : 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                    }`}
+                  >
+                    {isRoomLocked ? (lang === 'ar' ? '🔒 مقفلة (افتح)' : '🔒 Closed (Open)') : (lang === 'ar' ? '🔓 مفتوحة (اقفل)' : '🔓 Open (Close)')}
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'إعادة ضبط المعركة:' : 'Reset Match:'}</span>
+                <span className="text-slate-300 font-bold">{lang === 'ar' ? 'بدء جولة جديدة:' : 'Reset Match:'}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -750,3 +798,141 @@ export function SettingsModal({
     </div>
   );
 }
+
+export function RoomQuestsModal({
+  lang,
+  open,
+  onClose,
+  roomTitle,
+  roomHostName,
+  roomXp,
+  roomMatches,
+  roomGiftsSent,
+  roomChatsSent,
+  claimedQuestIds,
+  onClaimQuest,
+}: {
+  lang: string;
+  open: boolean;
+  onClose: () => void;
+  roomTitle: string;
+  roomHostName: string;
+  roomXp: number;
+  roomMatches: number;
+  roomGiftsSent: number;
+  roomChatsSent: number;
+  claimedQuestIds: string[];
+  onClaimQuest: (questId: string, rewardXp: number, rewardCoins: number) => void;
+}) {
+  if (!open) return null;
+  const lvlInfo = calculateRoomLevel(roomXp);
+  const pct = Math.min(100, Math.round((lvlInfo.currentXp / lvlInfo.nextXpRequired) * 100));
+
+  const quests = [
+    {
+      id: 'q-matches-1',
+      titleAr: 'أكمل مباراة داخل الغرفة',
+      titleEn: 'Complete 1 match in room',
+      progress: roomMatches,
+      target: 1,
+      rewardXp: 60,
+      rewardCoins: 25,
+    },
+    {
+      id: 'q-gifts-1',
+      titleAr: 'أرسل 2 هدية سلام أو حرب بالداخل',
+      titleEn: 'Send 2 Peace or War gifts',
+      progress: roomGiftsSent,
+      target: 2,
+      rewardXp: 40,
+      rewardCoins: 20,
+    },
+    {
+      id: 'q-chat-3',
+      titleAr: 'شارك بـ 3 رسائل في شات الغرفة',
+      titleEn: 'Send 3 room chat messages',
+      progress: roomChatsSent,
+      target: 3,
+      rewardXp: 30,
+      rewardCoins: 15,
+    },
+  ];
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+      <div
+        dir={lang === 'ar' ? 'rtl' : 'ltr'}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md bg-slate-950 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col gap-3 text-slate-100 max-h-[85dvh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2 text-amber-300 font-black text-sm">
+            <StarShieldIcon className="w-5 h-5" />
+            <span>{lang === 'ar' ? 'مستوى الغرفة ومهامها' : 'Room Level & Quests'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-950/60 to-slate-900 border border-emerald-500/40 space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-black text-white">{roomTitle}</h4>
+              <span className="text-[10px] text-slate-400">
+                {lang === 'ar' ? `غرفة ${roomHostName} الدائمة` : `${roomHostName}'s Permanent Room`}
+              </span>
+            </div>
+            <div className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black">
+              ⭐ Lv.{lvlInfo.level}
+            </div>
+          </div>
+
+          <div className="w-full h-2.5 rounded-full bg-slate-950 border border-slate-800 overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-emerald-400 to-amber-400 transition-all duration-500" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+            <span>Room XP: {lvlInfo.currentXp} / {lvlInfo.nextXpRequired}</span>
+            <span>{lang === 'ar' ? `مباريات: ${roomMatches}` : `Matches: ${roomMatches}`}</span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {quests.map((q) => {
+            const done = q.progress >= q.target;
+            const claimed = claimedQuestIds.includes(q.id);
+            return (
+              <div key={q.id} className="p-2.5 rounded-2xl bg-slate-900/75 border border-slate-800 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-white">{lang === 'ar' ? q.titleAr : q.titleEn}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    +{q.rewardXp} Room XP • +{q.rewardCoins} 🪙 ({Math.min(q.progress, q.target)}/{q.target})
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={!done || claimed}
+                  onClick={() => onClaimQuest(q.id, q.rewardXp, q.rewardCoins)}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black shrink-0 ${
+                    claimed
+                      ? 'bg-slate-800 text-slate-500'
+                      : done
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer shadow'
+                      : 'bg-slate-950 text-slate-500 border border-slate-800'
+                  }`}
+                >
+                  {claimed ? (lang === 'ar' ? 'تم ✓' : 'Claimed') : done ? (lang === 'ar' ? 'استلام' : 'Claim') : (lang === 'ar' ? 'جاري' : 'In Progress')}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+

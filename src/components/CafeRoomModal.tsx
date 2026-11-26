@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Profile } from '@/lib/supabase';
-import { subscribeLudoLobby, LiveLobbyRoom } from '@/app/games/ludo/ludoRealtime';
+import {
+  subscribeLudoLobby,
+  LiveLobbyRoom,
+  getOwnerRoomId,
+  loadOwnerRoomLocal,
+  saveRoomMetaToServer,
+} from '@/app/games/ludo/ludoRealtime';
 
 export type CafeGameKey = 'ludo' | 'domino' | 'backgammon' | 'chess' | 'uno' | 'estimation';
 
@@ -44,6 +50,10 @@ interface ActiveTableItem {
   prizeAmount: number;
   status: 'waiting' | 'in_game';
   subType?: string;
+  isOpen?: boolean;
+  roomLevel?: number;
+  bannedIds?: string[];
+  hostId?: string;
 }
 
 interface GameCafeMeta {
@@ -493,12 +503,34 @@ export default function CafeRoomModal({
     lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`
   );
 
-  // Live Supabase Realtime Lobby Rooms
+  // Live Supabase Realtime Lobby Rooms + Owner Permanent Room
   const [liveLudoRooms, setLiveLudoRooms] = useState<ActiveTableItem[]>([]);
+  const [myPermanentRoom, setMyPermanentRoom] = useState<ActiveTableItem | null>(null);
   const lobbyPubRef = useRef<((room: LiveLobbyRoom | null) => Promise<void>) | null>(null);
 
   useEffect(() => {
     if (gameKey !== 'ludo') return;
+    const savedOwner = loadOwnerRoomLocal(profile.id);
+    if (savedOwner) {
+      setMyPermanentRoom({
+        id: savedOwner.id,
+        nameAr: savedOwner.name,
+        nameEn: savedOwner.name,
+        hostName: savedOwner.hostName,
+        hostAvatar: savedOwner.hostAvatar || profile.avatar_url || '',
+        flag: '👑',
+        playerCount: savedOwner.maxPlayers || 4,
+        currentPlayers: 1,
+        spectatorsCount: 0,
+        entryFee: savedOwner.stake || 50,
+        prizeAmount: (savedOwner.stake || 50) * (savedOwner.maxPlayers === 2 ? 1.9 : 3.8),
+        status: 'waiting',
+        isOpen: savedOwner.isOpen,
+        roomLevel: savedOwner.roomLevel,
+        bannedIds: savedOwner.bannedIds,
+        hostId: savedOwner.hostId,
+      });
+    }
     const sub = subscribeLudoLobby(
       {
         id: profile.id,
@@ -521,6 +553,10 @@ export default function CafeRoomModal({
             prizeAmount: (r.stake || 50) * (r.maxPlayers === 2 ? 1.9 : 3.8),
             status: r.status,
             subType: r.piecesCount === 2 ? 'blitz' : 'classic',
+            isOpen: r.isOpen !== false,
+            roomLevel: r.roomLevel || 1,
+            bannedIds: r.bannedIds || [],
+            hostId: r.hostId,
           }))
         );
       }
@@ -573,10 +609,14 @@ export default function CafeRoomModal({
   };
 
   const handleCreateRoom = () => {
+    const persistentId = gameKey === 'ludo' ? getOwnerRoomId(profile.id) : `room-${Date.now().toString().slice(-4)}`;
+    const existingOwner = gameKey === 'ludo' ? loadOwnerRoomLocal(profile.id) : null;
+    const finalName = roomNameInput || (lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`);
+
     const config: CafeRoomConfig = {
-      roomId: `room-${Date.now().toString().slice(-4)}`,
+      roomId: persistentId,
       gameKey,
-      roomName: roomNameInput || (lang === 'ar' ? `غرفة ${profile.username} 👑` : `${profile.username}'s Room 👑`),
+      roomName: finalName,
       role,
       playerCount,
       entryFee,
@@ -586,31 +626,68 @@ export default function CafeRoomModal({
       hostName: profile.username,
       hostAvatar: profile.avatar_url || '',
     };
-    if (gameKey === 'ludo' && lobbyPubRef.current) {
-      void lobbyPubRef.current({
-        id: config.roomId,
-        name: config.roomName,
+    if (gameKey === 'ludo') {
+      void saveRoomMetaToServer({
+        id: persistentId,
+        name: finalName,
         hostId: profile.id,
         hostName: profile.username,
         hostAvatar: profile.avatar_url || '',
         stake: entryFee,
         maxPlayers: playerCount,
-        piecesCount: 4,
-        winRule: 'all',
-        status: 'waiting',
-        currentPlayers: 1,
+        isOpen: true,
+        roomLevel: existingOwner?.roomLevel || 1,
+        roomXp: existingOwner?.roomXp || 0,
+        roomMatches: existingOwner?.roomMatches || 0,
+        bannedIds: existingOwner?.bannedIds || [],
+        updatedAt: Date.now(),
       });
+      if (lobbyPubRef.current) {
+        void lobbyPubRef.current({
+          id: config.roomId,
+          name: config.roomName,
+          hostId: profile.id,
+          hostName: profile.username,
+          hostAvatar: profile.avatar_url || '',
+          stake: entryFee,
+          maxPlayers: playerCount,
+          piecesCount: 4,
+          winRule: 'all',
+          status: 'waiting',
+          currentPlayers: 1,
+          isOpen: true,
+          roomLevel: existingOwner?.roomLevel || 1,
+          roomXp: existingOwner?.roomXp || 0,
+          roomMatches: existingOwner?.roomMatches || 0,
+          bannedIds: existingOwner?.bannedIds || [],
+        });
+      }
     }
     startEntryFlow(config);
   };
 
   const handleJoinActiveRoom = (room: ActiveTableItem) => {
+    const amIOwner = room.hostId === profile.id || (gameKey === 'ludo' && room.id === getOwnerRoomId(profile.id));
+    if (room.bannedIds?.includes(profile.id) && !amIOwner) {
+      addToast(lang === 'ar' ? '⛔ أنت محظور من دخول هذه الغرفة!' : '⛔ You are banned from this room!', 'error');
+      return;
+    }
+    if (room.isOpen === false && !amIOwner) {
+      addToast(lang === 'ar' ? '🔒 هذه الغرفة مقفلة مؤقتاً من صاحبها!' : '🔒 This room is temporarily locked!', 'warning');
+      return;
+    }
+
     const isMatchPlaying = room.status === 'in_game';
     const isFull = room.currentPlayers >= room.playerCount;
     const canAfford = profile.gold_coins >= room.entryFee;
 
-    // If match is in progress, or table is full, or user balance is less than stake, enter automatically as spectator!
-    const roleToAssign: 'player' | 'spectator' = (isMatchPlaying || isFull || !canAfford) ? 'spectator' : 'player';
+    // Guests enter Ludo rooms without mic/player seat until Host approves mic
+    const roleToAssign: 'player' | 'spectator' =
+      gameKey === 'ludo' && !amIOwner
+        ? 'spectator'
+        : isMatchPlaying || isFull || !canAfford
+        ? 'spectator'
+        : 'player';
 
     const config: CafeRoomConfig = {
       roomId: room.id,
@@ -621,8 +698,8 @@ export default function CafeRoomModal({
       entryFee: roleToAssign === 'spectator' ? 0 : room.entryFee,
       prizeAmount: roleToAssign === 'spectator' ? 0 : room.prizeAmount,
       subType: room.subType,
-      isHost: false,
-      hostId: room.id,
+      isHost: amIOwner,
+      hostId: room.hostId || room.id,
       hostName: room.hostName,
       hostAvatar: room.hostAvatar,
     };
@@ -835,7 +912,13 @@ export default function CafeRoomModal({
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(gameKey === 'ludo'
-                    ? [...liveLudoRooms, ...meta.activeTables.filter((t) => !liveLudoRooms.some((lr) => lr.id === t.id))]
+                    ? [
+                        ...(myPermanentRoom ? [myPermanentRoom] : []),
+                        ...liveLudoRooms.filter((lr) => lr.id !== myPermanentRoom?.id),
+                        ...meta.activeTables.filter(
+                          (t) => t.id !== myPermanentRoom?.id && !liveLudoRooms.some((lr) => lr.id === t.id)
+                        ),
+                      ]
                     : meta.activeTables
                   ).map((room) => {
                     const isFull = room.currentPlayers >= room.playerCount;
@@ -864,8 +947,18 @@ export default function CafeRoomModal({
                                 <span>{lang === 'ar' ? room.nameAr : room.nameEn}</span>
                                 <span>{room.flag}</span>
                               </div>
-                              <div className="text-[10px] text-slate-400">
-                                {lang === 'ar' ? `المضيف: ${room.hostName}` : `Host: ${room.hostName}`}
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                                <span>{lang === 'ar' ? `المضيف: ${room.hostName}` : `Host: ${room.hostName}`}</span>
+                                {room.roomLevel && (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 font-black text-[9px] border border-amber-400/30">
+                                    ⭐ Lv.{room.roomLevel}
+                                  </span>
+                                )}
+                                {room.isOpen === false && (
+                                  <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-black text-[9px] border border-rose-400/40">
+                                    🔒 مقفلة مؤقتاً
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>

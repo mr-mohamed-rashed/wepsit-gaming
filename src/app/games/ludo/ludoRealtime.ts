@@ -14,6 +14,11 @@ export interface LiveLobbyRoom {
   winRule: 'first' | 'all';
   status: 'waiting' | 'in_game';
   currentPlayers: number;
+  isOpen?: boolean;
+  roomLevel?: number;
+  roomXp?: number;
+  roomMatches?: number;
+  bannedIds?: string[];
   playersJoined?: Array<{
     id: string;
     username: string;
@@ -67,6 +72,47 @@ export type LudoRoomEvent =
       winRule: 'first' | 'all';
       activeColors: LudoTurnColor[];
       seatAssignments: Partial<Record<LudoTurnColor, { id: string; username: string; avatar: string; isHuman: boolean }>>;
+    }
+  | {
+      type: 'mic_request';
+      senderId: string;
+      username: string;
+      avatar: string;
+      slotIndex: number;
+    }
+  | {
+      type: 'mic_response';
+      senderId: string;
+      targetId: string;
+      targetName: string;
+      targetAvatar: string;
+      approved: boolean;
+      slotIndex: number;
+    }
+  | {
+      type: 'moderation_action';
+      senderId: string;
+      targetId: string;
+      targetName?: string;
+      action:
+        | 'chat_mute'
+        | 'chat_unmute'
+        | 'mic_mute'
+        | 'mic_unmute'
+        | 'mic_kick'
+        | 'grant_admin'
+        | 'revoke_admin'
+        | 'kick'
+        | 'ban';
+    }
+  | {
+      type: 'room_state';
+      senderId: string;
+      isLocked: boolean;
+      micMode: 'approval' | 'all' | 'admins_only';
+      roomLevel: number;
+      roomXp: number;
+      deputyIds: string[];
     };
 
 type RtcSignalPayload =
@@ -186,6 +232,11 @@ export function subscribeLudoLobby(
           winRule: row.win_rule === 'all' ? 'all' : 'first',
           status: row.status === 'in_game' ? 'in_game' : 'waiting',
           currentPlayers: Number(row.current_players || 1),
+          isOpen: row.is_open !== false,
+          roomLevel: Number(row.room_level || 1),
+          roomXp: Number(row.room_xp || 0),
+          roomMatches: Number(row.room_matches || 0),
+          bannedIds: Array.isArray(row.banned_ids) ? row.banned_ids : [],
           updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
         }));
         emitMerged();
@@ -269,6 +320,11 @@ export function subscribeLudoLobby(
             win_rule: room.winRule,
             status: room.status,
             current_players: room.currentPlayers,
+            is_open: room.isOpen !== false,
+            room_level: room.roomLevel || 1,
+            room_xp: room.roomXp || 0,
+            room_matches: room.roomMatches || 0,
+            banned_ids: room.bannedIds || [],
             updated_at: new Date().toISOString(),
           });
         } else if (prevId) {
@@ -650,3 +706,131 @@ export async function syncLudoEconomyToServer(params: {
     // Fallback gracefully if RPC isn't installed yet or user plays offline
   }
 }
+
+export function calculateRoomLevel(totalXp: number): {
+  level: number;
+  currentXp: number;
+  nextXpRequired: number;
+} {
+  let level = 1;
+  let required = 100;
+  let xp = Math.max(0, totalXp);
+  while (xp >= required) {
+    xp -= required;
+    level += 1;
+    required = Math.round(required * 1.5);
+  }
+  return { level, currentXp: xp, nextXpRequired: required };
+}
+
+export interface PersistentOwnerRoom {
+  id: string;
+  name: string;
+  hostId: string;
+  hostName: string;
+  hostAvatar: string;
+  stake: number;
+  maxPlayers: number;
+  isOpen: boolean;
+  roomLevel: number;
+  roomXp: number;
+  roomMatches: number;
+  bannedIds: string[];
+  updatedAt: number;
+}
+
+export function getOwnerRoomId(ownerId: string): string {
+  const safeId = (ownerId || 'guest').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20) || 'guest';
+  return `room-owner-${safeId}`;
+}
+
+export function loadOwnerRoomLocal(ownerId: string): PersistentOwnerRoom | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`ludo_owner_room_${ownerId}`);
+    return raw ? (JSON.parse(raw) as PersistentOwnerRoom) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveOwnerRoomLocal(room: PersistentOwnerRoom) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(`ludo_owner_room_${room.hostId}`, JSON.stringify(room));
+    localStorage.setItem(
+      `ludo_room_meta_${room.id}`,
+      JSON.stringify({
+        isOpen: room.isOpen,
+        roomLevel: room.roomLevel,
+        roomXp: room.roomXp,
+        roomMatches: room.roomMatches,
+        bannedIds: room.bannedIds,
+      })
+    );
+  } catch {}
+}
+
+export async function fetchRoomMetaFromServer(roomId: string): Promise<Partial<PersistentOwnerRoom> | null> {
+  const localRaw =
+    typeof window !== 'undefined' ? (() => {
+      try {
+        const s = localStorage.getItem(`ludo_room_meta_${roomId}`);
+        return s ? JSON.parse(s) : null;
+      } catch {
+        return null;
+      }
+    })() : null;
+
+  const client = getLudoSupabaseClient();
+  if (!client) return localRaw;
+
+  try {
+    const { data, error } = await client.from('ludo_rooms').select('*').eq('id', roomId).maybeSingle();
+    if (!error && data) {
+      return {
+        id: String(data.id),
+        name: data.name,
+        hostId: String(data.host_id),
+        hostName: data.host_name,
+        hostAvatar: data.host_avatar || '',
+        stake: Number(data.stake || 50),
+        maxPlayers: Number(data.max_players || 4),
+        isOpen: data.is_open !== false,
+        roomLevel: Number(data.room_level || 1),
+        roomXp: Number(data.room_xp || 0),
+        roomMatches: Number(data.room_matches || 0),
+        bannedIds: Array.isArray(data.banned_ids) ? data.banned_ids : [],
+      };
+    }
+  } catch {}
+  return localRaw;
+}
+
+export async function saveRoomMetaToServer(room: PersistentOwnerRoom) {
+  saveOwnerRoomLocal(room);
+  const client = getLudoSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('ludo_rooms').upsert({
+      id: room.id,
+      name: room.name,
+      host_id: room.hostId,
+      host_name: room.hostName,
+      host_avatar: room.hostAvatar,
+      stake: room.stake,
+      max_players: room.maxPlayers,
+      pieces_count: 4,
+      win_rule: 'all',
+      status: room.isOpen ? 'waiting' : 'in_game',
+      current_players: 1,
+      is_open: room.isOpen,
+      room_level: room.roomLevel,
+      room_xp: room.roomXp,
+      room_matches: room.roomMatches,
+      banned_ids: room.bannedIds,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {}
+}
+

@@ -57,12 +57,18 @@ import {
   RulesModal,
   ExitConfirmModal,
   SettingsModal,
+  RoomQuestsModal,
 } from './ludoModals';
 import {
   joinLudoRoomRealtime,
   subscribeLudoLobby,
   syncLudoEconomyToServer,
-  isLudoRealtimeConfigured,
+  calculateRoomLevel,
+  getOwnerRoomId,
+  loadOwnerRoomLocal,
+  fetchRoomMetaFromServer,
+  saveRoomMetaToServer,
+  PersistentOwnerRoom,
   LudoRoomHandle,
   LudoRoomEvent,
   RoomPeerPresence,
@@ -105,8 +111,8 @@ function LudoApp() {
   const initialWinRule = (queryWinRule === 'first' ? 'first' : 'all') as 'first' | 'all';
 
   // --- Room & Role Architecture (فصل إنشاء الغرفة عن الجيم) ---
-  const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room' | 'active_room'>('active_room');
-  const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryRole);
+  const [lobbyView, setLobbyView] = useState<'rooms' | 'create_room'>('rooms');
+  const [userRole, setUserRole] = useState<'player' | 'spectator'>(queryIsHost ? queryRole : 'spectator');
   const [gameStarted, setGameStarted] = useState<boolean>(false); // Starts from inside the room
   const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
   const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>(() => {
@@ -182,6 +188,17 @@ function LudoApp() {
   } | null>(null);
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
+  const [showRoomQuestsModal, setShowRoomQuestsModal] = useState<boolean>(false);
+  const [isRoomLocked, setIsRoomLocked] = useState<boolean>(false);
+  const [roomXp, setRoomXp] = useState<number>(0);
+  const [roomMatchesCount, setRoomMatchesCount] = useState<number>(0);
+  const [roomGiftsCount, setRoomGiftsCount] = useState<number>(0);
+  const [roomChatsCount, setRoomChatsCount] = useState<number>(0);
+  const [claimedRoomQuests, setClaimedRoomQuests] = useState<string[]>([]);
+  const [hasMicPermission, setHasMicPermission] = useState<boolean>(() => queryIsHost);
+  const [micRequests, setMicRequests] = useState<Array<{ userId: string; username: string; avatar: string; slotIndex: number }>>([]);
+  const [chatMutedUserIds, setChatMutedUserIds] = useState<string[]>([]);
+  const [kickedNotice, setKickedNotice] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [winner, setWinner] = useState<PlayerColor | null>(null);
   const [winReward, setWinReward] = useState<number>(0);
@@ -197,7 +214,7 @@ function LudoApp() {
   const [musicDuration, setMusicDuration] = useState<number>(0);
   const [isMusicModalOpen, setIsMusicModalOpen] = useState<boolean>(false);
   const [isMusicMinimized, setIsMusicMinimized] = useState<boolean>(false);
-  const [isMicOn, setIsMicOn] = useState<boolean>(true);
+  const [isMicOn, setIsMicOn] = useState<boolean>(() => queryIsHost);
 
   // --- Room Authority, Moderation & Permissions (Host & Deputy) ---
   const [roomHostId, setRoomHostId] = useState<string>(queryHostId);
@@ -207,7 +224,7 @@ function LudoApp() {
   const [moderatorIds, setModeratorIds] = useState<string[]>([]);
   const [mutedUserIds, setMutedUserIds] = useState<string[]>([]);
   const [bannedUserIds, setBannedUserIds] = useState<string[]>([]);
-  const [roomMicMode, setRoomMicMode] = useState<'all' | 'admins_only'>('all');
+  const [roomMicMode, setRoomMicMode] = useState<'approval' | 'all' | 'admins_only'>('approval');
   const [selectedUserForModeration, setSelectedUserForModeration] = useState<{
     id: string;
     name: string;
@@ -231,20 +248,20 @@ function LudoApp() {
     isMuted?: boolean;
   }
 
-  const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>({
+  const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>(() => ({
     blue: {
-      id: queryUserId || '12842582',
-      name: queryUsername || 'Ali',
-      avatar: queryAvatar || '/laugh_emote.png',
+      id: queryIsHost ? (queryUserId || '12842582') : queryHostId,
+      name: queryIsHost ? (queryUsername || 'Ali') : queryHostName,
+      avatar: (queryIsHost ? queryAvatar : queryHostAvatar) || '/laugh_emote.png',
       isBot: false,
-      isHost: queryIsHost,
+      isHost: true,
       isDeputy: false,
       isMuted: false,
     },
     green: null,
     red: null,
     yellow: null,
-  });
+  }));
 
   const MicIcon = ({ muted = false, className = 'w-3.5 h-3.5' }: { muted?: boolean; className?: string }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
@@ -262,7 +279,7 @@ function LudoApp() {
     { id: 'spec-3', name: 'صقر دبي', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Saqr', isMicOn: true, isMuted: false },
   ]);
 
-  // Interactive 6 Top Voice Mic Seats (التنقل بين مقاعد المايك بحرية)
+  // Interactive 6 Top Voice Mic Seats (التنقل بين مقاعد المايك بحرية - الزائر يدخل بدون مايك!)
   type VoiceMicSlot = {
     id: string;
     name: string;
@@ -281,13 +298,35 @@ function LudoApp() {
   ]);
 
   const handleTakeVoiceSeat = (slotIndex: number) => {
+    const myId = userProfile?.id || '12842582';
+    const myName = userProfile?.username || 'Ali';
+    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
+
     if (roomMicMode === 'admins_only' && !canAccessSettings) {
       setStatusMessage(lang === 'ar' ? '👑 المايك مقتصر على المشرفين حالياً!' : '👑 Mic is currently admins-only!');
       return;
     }
-    const myId = userProfile?.id || '12842582';
-    const myName = userProfile?.username || 'Ali';
-    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
+
+    // Guest needs Owner/Admin approval before climbing onto mic
+    if (roomMicMode === 'approval' && !canAccessSettings && !hasMicPermission) {
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'mic_request',
+        senderId: myId,
+        username: myName,
+        avatar: myAvatar,
+        slotIndex,
+      });
+      setStatusMessage(
+        lang === 'ar'
+          ? `✋ تم إرسال طلب الصعود على المايك #${slotIndex + 1} لصاحب الغرفة، بانتظار موافقته...`
+          : `✋ Mic request #${slotIndex + 1} sent to Room Owner...`
+      );
+      addChatMessage(
+        lang === 'ar' ? `✋ طلب ${myName} الصعود على المايك رقم ${slotIndex + 1}` : `✋ ${myName} requested mic seat #${slotIndex + 1}`,
+        'system'
+      );
+      return;
+    }
 
     setVoiceMicSlots(prev => {
       const next = prev.map(s => (s && s.id === myId ? null : s));
@@ -319,6 +358,37 @@ function LudoApp() {
       lang === 'ar' ? `🎤 صعد ${myName} إلى مقعد المايك رقم ${slotIndex + 1}` : `🎤 ${myName} moved to mic seat #${slotIndex + 1}`,
       'system'
     );
+  };
+
+  const handleApproveMicRequest = (req: { userId: string; username: string; avatar: string; slotIndex: number }, approved: boolean) => {
+    setMicRequests(prev => prev.filter(r => r.userId !== req.userId));
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'mic_response',
+      senderId: userProfile?.id || 'host',
+      targetId: req.userId,
+      targetName: req.username,
+      targetAvatar: req.avatar,
+      approved,
+      slotIndex: req.slotIndex,
+    });
+    if (approved) {
+      setVoiceMicSlots(prev => {
+        const next = prev.map(s => (s && s.id === req.userId ? null : s));
+        if (next[req.slotIndex] === null) {
+          next[req.slotIndex] = { id: req.userId, name: req.username, avatar: req.avatar };
+        }
+        return next;
+      });
+      addChatMessage(
+        lang === 'ar' ? `✓ وافق المشرف على صعود ${req.username} على المايك` : `✓ Approved mic for ${req.username}`,
+        'system'
+      );
+    } else {
+      addChatMessage(
+        lang === 'ar' ? `✕ رفض المشرف طلب مايك ${req.username}` : `✕ Declined mic for ${req.username}`,
+        'system'
+      );
+    }
   };
 
   const handleLeaveVoiceSeat = () => {
@@ -466,14 +536,18 @@ function LudoApp() {
   };
 
   const toggleMic = () => {
-    const nextMuted = isMicOn; // if mic was on, mute it; if off, unmute it
-    setIsMicOn(!nextMuted);
-    setIsMicMuted(nextMuted);
-    void roomRealtimeRef.current?.voice.setMicEnabled(!nextMuted);
-    void roomRealtimeRef.current?.updatePresence({ isMuted: nextMuted });
+    void togglePlayerMicMute();
   };
 
   const togglePlayerMicMute = async () => {
+    if (!canAccessSettings && roomMicMode !== 'all' && !hasMicPermission) {
+      setStatusMessage(
+        lang === 'ar'
+          ? '✋ يجب طلب الصعود على مقعد المايك أولاً وموافقة صاحب الغرفة للتحدث!'
+          : '✋ Request a mic seat first and wait for Host approval to speak!'
+      );
+      return;
+    }
     const nextMuted = !isMicMuted;
     setIsMicMuted(nextMuted);
     setIsMicOn(!nextMuted);
@@ -560,14 +634,22 @@ function LudoApp() {
   };
 
   const handleToggleMuteUser = (userId: string) => {
+    if (!canAccessSettings) return;
     setMutedUserIds(prev => {
       const isAlreadyMuted = prev.includes(userId);
       const next = isAlreadyMuted ? prev.filter(id => id !== userId) : [...prev, userId];
       const targetName = selectedUserForModeration?.name || 'المستخدم';
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'moderation_action',
+        senderId: userProfile?.id || 'host',
+        targetId: userId,
+        targetName,
+        action: isAlreadyMuted ? 'mic_unmute' : 'mic_mute',
+      });
       addChatMessage(
         isAlreadyMuted
-          ? (lang === 'ar' ? `🎙️ تم إلغاء كتم صوت ${targetName}` : `Unmuted ${targetName}`)
-          : (lang === 'ar' ? `🔇 تم كتم صوت ${targetName} بواسطة المشرف` : `Muted ${targetName} by admin`),
+          ? (lang === 'ar' ? `🎙️ تم إلغاء كتم مايك ${targetName}` : `Unmuted ${targetName}`)
+          : (lang === 'ar' ? `🔇 تم كتم مايك ${targetName} بواسطة المشرف` : `Muted ${targetName} by admin`),
         'system'
       );
       return next;
@@ -575,15 +657,62 @@ function LudoApp() {
     setSelectedUserForModeration(null);
   };
 
+  const handleToggleChatMuteUser = (userId: string) => {
+    if (!canAccessSettings) return;
+    setChatMutedUserIds(prev => {
+      const isAlready = prev.includes(userId);
+      const next = isAlready ? prev.filter(id => id !== userId) : [...prev, userId];
+      const targetName = selectedUserForModeration?.name || 'المستخدم';
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'moderation_action',
+        senderId: userProfile?.id || 'host',
+        targetId: userId,
+        targetName,
+        action: isAlready ? 'chat_unmute' : 'chat_mute',
+      });
+      addChatMessage(
+        isAlready
+          ? (lang === 'ar' ? `💬 تم السماح لـ ${targetName} بالكتابة مجدداً` : `Unmuted chat for ${targetName}`)
+          : (lang === 'ar' ? `🔇 تم كتم كتابة ${targetName} في الشات مع بقائه في الغرفة` : `Muted chat for ${targetName}`),
+        'system'
+      );
+      return next;
+    });
+    setSelectedUserForModeration(null);
+  };
+
+  const handleKickFromMicUser = (userId: string) => {
+    if (!canAccessSettings) return;
+    const targetName = selectedUserForModeration?.name || 'المستخدم';
+    setVoiceMicSlots(prev => prev.map(s => (s && s.id === userId ? null : s)));
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'moderation_action',
+      senderId: userProfile?.id || 'host',
+      targetId: userId,
+      targetName,
+      action: 'mic_kick',
+    });
+    addChatMessage(lang === 'ar' ? `⬇️ تم إنزال ${targetName} من مقعد المايك` : `Removed ${targetName} from mic`, 'system');
+    setSelectedUserForModeration(null);
+  };
+
   const handleToggleAdminUser = (userId: string) => {
+    if (!isHost) return;
     setModeratorIds(prev => {
       const isAlreadyAdmin = prev.includes(userId);
       const next = isAlreadyAdmin ? prev.filter(id => id !== userId) : [...prev, userId];
       const targetName = selectedUserForModeration?.name || 'المستخدم';
+      void roomRealtimeRef.current?.sendEvent({
+        type: 'moderation_action',
+        senderId: userProfile?.id || 'host',
+        targetId: userId,
+        targetName,
+        action: isAlreadyAdmin ? 'revoke_admin' : 'grant_admin',
+      });
       addChatMessage(
         isAlreadyAdmin
           ? (lang === 'ar' ? `تم سحب رتبة الإشراف من ${targetName}` : `Revoked admin from ${targetName}`)
-          : (lang === 'ar' ? `👑 تم منح رتبة مشرف لـ ${targetName}!` : `Granted admin to ${targetName}!`),
+          : (lang === 'ar' ? `👑 تم منح صلاحية الإشراف لـ ${targetName}!` : `Granted admin to ${targetName}!`),
         'system'
       );
       return next;
@@ -592,6 +721,7 @@ function LudoApp() {
   };
 
   const handleKickUser = (userId: string) => {
+    if (!canAccessSettings) return;
     const targetName = selectedUserForModeration?.name || 'المستخدم';
     if (selectedUserForModeration?.seatColor) {
       setTableSeats(prev => ({
@@ -599,16 +729,50 @@ function LudoApp() {
         [selectedUserForModeration.seatColor!]: null,
       }));
     }
+    setVoiceMicSlots(prev => prev.map(s => (s && s.id === userId ? null : s)));
     setSpectatorSeats(prev => prev.filter(s => s.id !== userId));
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'moderation_action',
+      senderId: userProfile?.id || 'host',
+      targetId: userId,
+      targetName,
+      action: 'kick',
+    });
     addChatMessage(lang === 'ar' ? `🚪 تم طرد ${targetName} من الغرفة بواسطة المشرف` : `Kicked ${targetName} from room`, 'system');
     setSelectedUserForModeration(null);
   };
 
   const handleBlockUser = (userId: string) => {
+    if (!canAccessSettings) return;
     const targetName = selectedUserForModeration?.name || 'المستخدم';
-    setBannedUserIds(prev => [...prev, userId]);
-    handleKickUser(userId);
-    addChatMessage(lang === 'ar' ? `⛔ تم حظر ${targetName} ومنعه من الغرفة` : `Banned ${targetName} from room`, 'system');
+    const nextBanned = Array.from(new Set([...bannedUserIds, userId]));
+    setBannedUserIds(nextBanned);
+    void saveRoomMetaToServer({
+      id: roomId,
+      name: roomTitle,
+      hostId: roomHostId,
+      hostName: roomHostName,
+      hostAvatar: roomHostAvatar,
+      stake: roomStake,
+      maxPlayers: playerCount,
+      isOpen: !isRoomLocked,
+      roomLevel: calculateRoomLevel(roomXp).level,
+      roomXp,
+      roomMatches: roomMatchesCount,
+      bannedIds: nextBanned,
+      updatedAt: Date.now(),
+    });
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'moderation_action',
+      senderId: userProfile?.id || 'host',
+      targetId: userId,
+      targetName,
+      action: 'ban',
+    });
+    setVoiceMicSlots(prev => prev.map(s => (s && s.id === userId ? null : s)));
+    setSpectatorSeats(prev => prev.filter(s => s.id !== userId));
+    addChatMessage(lang === 'ar' ? `⛔ تم حظر ${targetName} ومنعه نهائياً من دخول الغرفة` : `Permanently banned ${targetName}`, 'system');
+    setSelectedUserForModeration(null);
   };
 
   // --- Persistent Head-to-Head & Coins ---
@@ -787,9 +951,16 @@ function LudoApp() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [quickInputText, setQuickInputText] = useState('');
 
+  const isSelfChatMuted = chatMutedUserIds.includes(userProfile?.id || '12842582');
+
   const addChatMessage = (text: string, type: 'chat' | 'gift' | 'system' | 'news' = 'system', user?: string, broadcast = false) => {
+    if (type === 'chat' && broadcast && isSelfChatMuted) {
+      setStatusMessage(lang === 'ar' ? '🔇 أنت مكتوم عن الكتابة في الشات بواسطة المشرف!' : '🔇 You are chat-muted by moderator!');
+      return;
+    }
     setChatMessages(prev => [{ id: Date.now().toString(), text, type: type as any, user }, ...prev.slice(0, 19)]);
-    if (broadcast && type === 'chat') {
+    if (type === 'chat' && broadcast) {
+      setRoomChatsCount(c => c + 1);
       void roomRealtimeRef.current?.sendEvent({
         type: 'chat_msg',
         senderId: userProfile?.id || 'guest',
@@ -898,23 +1069,14 @@ function LudoApp() {
     try {
       localStorage.removeItem('ludo_active_match_session');
     } catch (e) {}
-    setWinner(null);
-    setWinReward(0);
-    setGameStarted(false);
-    setLobbyView('active_room');
-    setGameState('waiting_roll');
-    setTurn('blue');
-    setRollingDicePlayer(null);
-    isAnimatingRef.current = false;
-    setIsAnimating(false);
-    setFootprints([]);
+    startMatchFromRoom();
   };
 
   const resetGame = () => {
     try {
       localStorage.removeItem('ludo_active_match_session');
     } catch (e) {}
-    returnToRoom();
+    startMatchFromRoom();
   };
 
   const confirmExitGame = () => {
@@ -924,7 +1086,9 @@ function LudoApp() {
     if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
       window.parent.postMessage({ type: 'CLOSE_GAME' }, '*');
     } else {
-      resetGame();
+      setWinner(null);
+      setGameStarted(false);
+      setLobbyView('rooms');
     }
   };
 
@@ -941,67 +1105,174 @@ function LudoApp() {
   const canAccessSettings = isHost || isDeputy;
   const canControlMatch = isHost || isDeputy;
 
-  const joinRoomFromList = (room: PublicLudoRoom, role: 'player' | 'spectator') => {
+  const handleParticipateInMatch = () => {
+    if (!canAccessSettings && !hasMicPermission && roomMicMode !== 'all') {
+      setStatusMessage(lang === 'ar' ? '✋ يجب صعود المايك بموافقة صاحب الغرفة قبل المشاركة في اللعب!' : '✋ Get mic permission before joining board play!');
+      return;
+    }
+    const order: PlayerColor[] = playerCount === 2 ? ['green', 'blue'] : ['green', 'yellow', 'red', 'blue'];
+    const targetColor = order.find(c => !tableSeats[c] || tableSeats[c]?.isBot) || 'green';
+    const myId = userProfile?.id || '12842582';
+    const myName = userProfile?.username || 'Ali';
+    const myAvatar = userProfile?.avatar_url || '/laugh_emote.png';
+    setTableSeats(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as PlayerColor[]).forEach(k => {
+        if (next[k]?.id === myId) next[k] = null;
+      });
+      next[targetColor] = { id: myId, name: myName, avatar: myAvatar, isBot: false, isHost, isDeputy };
+      return next;
+    });
+    setPlayerConfig(prev => ({ ...prev, [targetColor]: 'human' }));
+    setUserRole('player');
+    setStatusMessage(lang === 'ar' ? `⚔️ انضممت للعب في المقعد ${targetColor}!` : `⚔️ Joined game as ${targetColor}!`);
+  };
+
+  const handleToggleRoomLock = () => {
+    if (!isHost) return;
+    const nextLocked = !isRoomLocked;
+    setIsRoomLocked(nextLocked);
+    void saveRoomMetaToServer({
+      id: roomId,
+      name: roomTitle,
+      hostId: roomHostId,
+      hostName: roomHostName,
+      hostAvatar: roomHostAvatar,
+      stake: roomStake,
+      maxPlayers: playerCount,
+      isOpen: !nextLocked,
+      roomLevel: calculateRoomLevel(roomXp).level,
+      roomXp,
+      roomMatches: roomMatchesCount,
+      bannedIds: bannedUserIds,
+      updatedAt: Date.now(),
+    });
+    void roomRealtimeRef.current?.sendEvent({
+      type: 'room_state',
+      senderId: userProfile?.id || 'host',
+      isLocked: nextLocked,
+      micMode: roomMicMode,
+      roomLevel: calculateRoomLevel(roomXp).level,
+      roomXp,
+      deputyIds: moderatorIds,
+    });
+    addChatMessage(
+      nextLocked ? (lang === 'ar' ? '🔒 قام صاحب الغرفة بإغلاق الغرفة مؤقتاً' : '🔒 Host temporarily locked room') : (lang === 'ar' ? '🔓 أعاد صاحب الغرفة فتح الغرفة' : '🔓 Host reopened room'),
+      'system'
+    );
+  };
+
+  const handleClaimRoomQuest = (questId: string, rewardXp: number, rewardCoins: number) => {
+    if (claimedRoomQuests.includes(questId)) return;
+    setClaimedRoomQuests(prev => [...prev, questId]);
+    const nextXp = roomXp + rewardXp;
+    setRoomXp(nextXp);
+    setPlayerCoins(prev => {
+      const nextCoins = prev + rewardCoins;
+      try { localStorage.setItem('ludo_coins_balance', nextCoins.toString()); } catch {}
+      void syncLudoEconomyToServer({ userId: userProfile?.id, newCoins: nextCoins, deltaCoins: rewardCoins });
+      return nextCoins;
+    });
+    playCoinChime();
+    void saveRoomMetaToServer({
+      id: roomId,
+      name: roomTitle,
+      hostId: roomHostId,
+      hostName: roomHostName,
+      hostAvatar: roomHostAvatar,
+      stake: roomStake,
+      maxPlayers: playerCount,
+      isOpen: !isRoomLocked,
+      roomLevel: calculateRoomLevel(nextXp).level,
+      roomXp: nextXp,
+      roomMatches: roomMatchesCount,
+      bannedIds: bannedUserIds,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const joinRoomFromList = async (room: PublicLudoRoom, role: 'player' | 'spectator') => {
+    const meta = await fetchRoomMetaFromServer(room.id);
+    const myId = userProfile?.id || '12842582';
+    if (meta?.bannedIds?.includes(myId)) {
+      setStatusMessage(lang === 'ar' ? '⛔ أنت محظور من دخول هذه الغرفة!' : '⛔ You are banned from this room!');
+      return;
+    }
+    if (meta?.isOpen === false && room.hostName !== userProfile?.username) {
+      setStatusMessage(lang === 'ar' ? '🔒 هذه الغرفة مقفلة مؤقتاً من صاحبها!' : '🔒 This room is temporarily locked!');
+      return;
+    }
+
+    const amIHost = (meta?.hostId && meta.hostId === myId) || room.id === getOwnerRoomId(myId);
     setRoomId(room.id);
     setRoomTitle(lang === 'ar' ? room.nameAr : room.nameEn);
     setRoomStake(room.entryFee);
-    setRoomHostId(room.id);
+    setRoomHostId(meta?.hostId || room.id);
     setRoomHostName(room.hostName);
     setRoomHostAvatar(room.hostAvatar);
-    setUserRole(role);
     setPlayerCount(room.playerCount);
     setPieceCount(room.modeType === 'blitz' ? 2 : 4);
     setRoomDeputyId(null);
+    setRoomXp(meta?.roomXp || 0);
+    setRoomMatchesCount(meta?.roomMatches || 0);
+    setBannedUserIds(meta?.bannedIds || []);
+    setIsRoomLocked(meta?.isOpen === false);
+    setHasMicPermission(amIHost);
+    setIsMicMuted(!amIHost);
+    setIsMicOn(amIHost);
+    setUserRole(amIHost ? role : 'spectator');
 
-    if (role === 'player') {
-      setTableSeats({
-        blue: { id: room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
-        green: { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: false, isDeputy: false },
-        red: null,
-        yellow: null,
-      });
-    } else {
-      setTableSeats({
-        blue: { id: room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
-        green: null,
-        red: null,
-        yellow: null,
-      });
-      setSpectatorSeats(prev => [
-        { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isMicOn: true },
-        ...prev.filter(s => s.id !== userProfile.id)
-      ]);
-    }
-    setLobbyView('active_room');
+    setTableSeats({
+      blue: { id: meta?.hostId || room.id, name: room.hostName, avatar: room.hostAvatar, isBot: false, isHost: true, isDeputy: false },
+      green: null,
+      red: null,
+      yellow: null,
+    });
+    startMatchFromRoom();
   };
 
   const handleCreateCustomRoom = (role: 'player' | 'spectator') => {
-    setRoomHostId(userProfile.id);
+    const myId = userProfile?.id || '12842582';
+    const ownerRoomId = getOwnerRoomId(myId);
+    const existing = loadOwnerRoomLocal(myId);
+    const ownerRoom: PersistentOwnerRoom = {
+      id: ownerRoomId,
+      name: roomTitle,
+      hostId: myId,
+      hostName: userProfile.username,
+      hostAvatar: userProfile.avatar_url || '/laugh_emote.png',
+      stake: roomStake,
+      maxPlayers: playerCount,
+      isOpen: existing ? existing.isOpen : true,
+      roomLevel: existing ? existing.roomLevel : 1,
+      roomXp: existing ? existing.roomXp : 0,
+      roomMatches: existing ? existing.roomMatches : 0,
+      bannedIds: existing ? existing.bannedIds : [],
+      updatedAt: Date.now(),
+    };
+    void saveRoomMetaToServer(ownerRoom);
+
+    setRoomId(ownerRoomId);
+    setRoomHostId(myId);
     setRoomHostName(userProfile.username);
     setRoomHostAvatar(userProfile.avatar_url || '/laugh_emote.png');
+    setRoomXp(ownerRoom.roomLevel > 1 || ownerRoom.roomXp > 0 ? ownerRoom.roomXp : 0);
+    setRoomMatchesCount(ownerRoom.roomMatches);
+    setBannedUserIds(ownerRoom.bannedIds);
+    setIsRoomLocked(!ownerRoom.isOpen);
+    setHasMicPermission(true);
+    setIsMicMuted(false);
+    setIsMicOn(true);
     setUserRole(role);
     setRoomDeputyId(null);
 
-    if (role === 'player') {
-      setTableSeats({
-        blue: { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: true, isDeputy: false },
-        green: null,
-        red: null,
-        yellow: null,
-      });
-    } else {
-      setTableSeats({
-        blue: null,
-        green: null,
-        red: null,
-        yellow: null,
-      });
-      setSpectatorSeats(prev => [
-        { id: userProfile.id, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isMicOn: true },
-        ...prev.filter(s => s.id !== userProfile.id)
-      ]);
-    }
-    setLobbyView('active_room');
+    setTableSeats({
+      blue: role === 'player' ? { id: myId, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: true, isDeputy: false } : null,
+      green: null,
+      red: null,
+      yellow: null,
+    });
+    startMatchFromRoom();
   };
 
   const handleTakePlayerSeat = (color: PlayerColor) => {
@@ -1132,12 +1403,30 @@ function LudoApp() {
     );
   };
 
-  // Auto start match when entering room directly with autoStart=true
+  // Auto start match when entering room directly with autoStart=true & check room ban/lock/level metadata
   useEffect(() => {
-    if (queryAutoStart) {
-      startMatchFromRoom();
-    }
-  }, []);
+    const myId = userProfile?.id || '12842582';
+    void fetchRoomMetaFromServer(roomId).then((meta) => {
+      if (meta) {
+        if (typeof meta.roomXp === 'number') setRoomXp(meta.roomXp);
+        if (typeof meta.roomMatches === 'number') setRoomMatchesCount(meta.roomMatches);
+        if (Array.isArray(meta.bannedIds)) setBannedUserIds(meta.bannedIds);
+        if (meta.isOpen === false) setIsRoomLocked(true);
+
+        if (meta.bannedIds?.includes(myId) && myId !== roomHostId) {
+          setKickedNotice(lang === 'ar' ? '⛔ أنت محظور من دخول هذه الغرفة!' : '⛔ You are banned from this room!');
+          return;
+        }
+        if (meta.isOpen === false && myId !== roomHostId) {
+          setKickedNotice(lang === 'ar' ? '🔒 هذه الغرفة مقفلة مؤقتاً بواسطة صاحب الغرفة!' : '🔒 This room is temporarily locked by owner!');
+          return;
+        }
+      }
+      if (queryAutoStart) {
+        startMatchFromRoom();
+      }
+    });
+  }, [roomId]);
 
   // Keep WebRTC speaker mute synced with game audio mute button
   useEffect(() => {
@@ -1255,6 +1544,80 @@ function LudoApp() {
               });
             }, 3200);
           }, 520);
+        } else if (ev.type === 'mic_request') {
+          setMicRequests((prev) => {
+            if (prev.some((r) => r.userId === ev.senderId)) return prev;
+            return [...prev, { userId: ev.senderId, username: ev.username, avatar: ev.avatar, slotIndex: ev.slotIndex }];
+          });
+        } else if (ev.type === 'mic_response') {
+          const myId = userProfile?.id || '12842582';
+          if (ev.targetId === myId) {
+            if (ev.approved) {
+              setHasMicPermission(true);
+              setIsMicMuted(false);
+              setIsMicOn(true);
+              void roomRealtimeRef.current?.voice.setMicEnabled(true);
+              setVoiceMicSlots((prev) => {
+                const next = prev.map((s) => (s && s.id === myId ? null : s));
+                if (ev.slotIndex >= 0 && ev.slotIndex < next.length) {
+                  next[ev.slotIndex] = { id: myId, name: userProfile?.username || 'Ali', avatar: userProfile?.avatar_url || '/laugh_emote.png' };
+                }
+                return next;
+              });
+              setStatusMessage(lang === 'ar' ? '✓ سمح لك صاحب الغرفة بالصعود على المايك!' : '✓ Host approved your mic request!');
+            } else {
+              setStatusMessage(lang === 'ar' ? '✕ لم يوافق صاحب الغرفة على طلب المايك.' : '✕ Host declined your mic request.');
+            }
+          } else if (ev.approved) {
+            setVoiceMicSlots((prev) => {
+              const next = prev.map((s) => (s && s.id === ev.targetId ? null : s));
+              if (ev.slotIndex >= 0 && ev.slotIndex < next.length) {
+                next[ev.slotIndex] = { id: ev.targetId, name: ev.targetName, avatar: ev.targetAvatar };
+              }
+              return next;
+            });
+          }
+        } else if (ev.type === 'moderation_action') {
+          const myId = userProfile?.id || '12842582';
+          if (ev.action === 'chat_mute') {
+            setChatMutedUserIds((prev) => Array.from(new Set([...prev, ev.targetId])));
+          } else if (ev.action === 'chat_unmute') {
+            setChatMutedUserIds((prev) => prev.filter((id) => id !== ev.targetId));
+          } else if (ev.action === 'mic_mute') {
+            setMutedUserIds((prev) => Array.from(new Set([...prev, ev.targetId])));
+          } else if (ev.action === 'mic_unmute') {
+            setMutedUserIds((prev) => prev.filter((id) => id !== ev.targetId));
+          } else if (ev.action === 'mic_kick') {
+            setVoiceMicSlots((prev) => prev.map((s) => (s && s.id === ev.targetId ? null : s)));
+          } else if (ev.action === 'grant_admin') {
+            setModeratorIds((prev) => Array.from(new Set([...prev, ev.targetId])));
+          } else if (ev.action === 'revoke_admin') {
+            setModeratorIds((prev) => prev.filter((id) => id !== ev.targetId));
+          }
+
+          if (ev.targetId === myId) {
+            if (ev.action === 'chat_mute') {
+              setStatusMessage(lang === 'ar' ? '🔇 تم كتمك من الكتابة في الشات بواسطة المشرف' : '🔇 You were chat-muted by moderator');
+            } else if (ev.action === 'mic_mute' || ev.action === 'mic_kick') {
+              setIsMicMuted(true);
+              setIsMicOn(false);
+              void roomRealtimeRef.current?.voice.setMicEnabled(false);
+              if (ev.action === 'mic_kick') setHasMicPermission(false);
+            } else if (ev.action === 'grant_admin') {
+              setHasMicPermission(true);
+              setStatusMessage(lang === 'ar' ? '👑 منحك صاحب الغرفة صلاحية الإشراف!' : '👑 Host granted you Admin privileges!');
+            } else if (ev.action === 'kick') {
+              setKickedNotice(lang === 'ar' ? '🚪 تم طردك من الغرفة بواسطة المشرف' : '🚪 You were kicked from the room');
+            } else if (ev.action === 'ban') {
+              setBannedUserIds((prev) => Array.from(new Set([...prev, myId])));
+              setKickedNotice(lang === 'ar' ? '⛔ تم حظرك من هذه الغرفة ولن تتمكن من دخولها مجدداً' : '⛔ You have been banned from this room');
+            }
+          }
+        } else if (ev.type === 'room_state') {
+          setIsRoomLocked(ev.isLocked);
+          setRoomMicMode(ev.micMode);
+          setRoomXp(ev.roomXp);
+          setModeratorIds(ev.deputyIds);
         }
       },
     });
@@ -1346,7 +1709,6 @@ function LudoApp() {
           if (data.roomHostId) setRoomHostId(data.roomHostId);
           if (data.roomHostName) setRoomHostName(data.roomHostName);
           setGameStarted(true);
-          setLobbyView('active_room');
           setStatusMessage(
             lang === 'ar'
               ? '🔄 تم استئناف اللعبة السابقة بنجاح من حيث توقفت!'
@@ -1505,6 +1867,27 @@ function LudoApp() {
         const isMyWin = winnerColor === mySeatColor;
         const reward = isMyWin ? Math.max(150, roomStake * (playerCount === 2 ? 2 : 4)) : 0;
         setWinReward(reward);
+
+        // Award Room Match XP & Level Up persistence
+        const nextRoomXp = roomXp + 60;
+        const nextRoomMatches = roomMatchesCount + 1;
+        setRoomXp(nextRoomXp);
+        setRoomMatchesCount(nextRoomMatches);
+        void saveRoomMetaToServer({
+          id: roomId,
+          name: roomTitle,
+          hostId: roomHostId,
+          hostName: roomHostName,
+          hostAvatar: roomHostAvatar,
+          stake: roomStake,
+          maxPlayers: playerCount,
+          isOpen: !isRoomLocked,
+          roomLevel: calculateRoomLevel(nextRoomXp).level,
+          roomXp: nextRoomXp,
+          roomMatches: nextRoomMatches,
+          bannedIds: bannedUserIds,
+          updatedAt: Date.now(),
+        });
 
         // Update Coins in state, localStorage, and Supabase/Dashboard
         if (reward > 0) {
@@ -2616,6 +2999,7 @@ function LudoApp() {
     // Deduct coins & sync to server
     const updatedCoins = playerCoins - gift.cost;
     setPlayerCoins(updatedCoins);
+    setRoomGiftsCount(c => c + 1);
     try {
       localStorage.setItem('ludo_coins_balance', updatedCoins.toString());
     } catch (e) {}
@@ -3236,6 +3620,24 @@ function LudoApp() {
       />
 
       {/* 5-Second Animated Splash Screen / Intro Scene */}
+      {kickedNotice && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center gap-4">
+          <div className="max-w-sm w-full bg-slate-900 border-2 border-rose-500/60 rounded-3xl p-6 shadow-2xl space-y-4">
+            <h2 className="text-lg font-black text-rose-300">{kickedNotice}</h2>
+            <p className="text-xs text-slate-400">
+              {lang === 'ar' ? 'تم إنهاء وجودك داخل هذه الغرفة حسب إعدادات المالك والمشرفين.' : 'Access to this room has ended per host moderation.'}
+            </p>
+            <button
+              type="button"
+              onClick={confirmExitGame}
+              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer"
+            >
+              {lang === 'ar' ? 'العودة إلى الصالة' : 'Return to Lobby'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {showCinematicIntro && (
         <MythicSplashScreenIntro
           onComplete={() => {
@@ -3260,7 +3662,7 @@ function LudoApp() {
 
       {/* Main Content Area */}
       {!gameStarted ? (
-        lobbyView === 'rooms' ? (
+        lobbyView !== 'create_room' ? (
           /* VIEW 1: ACTIVE ROOMS LOBBY (كروت الغرف المباشرة + زر إنشاء غرفة) */
           <div className="flex-1 flex items-center justify-center p-3 sm:p-5 relative overflow-y-auto w-full">
             <div
@@ -3600,440 +4002,7 @@ function LudoApp() {
               </div>
             </div>
           </div>
-        ) : (
-          /* VIEW 3: ACTIVE ROOM LOUNGE (شاشة الغرفة ومجلس الطاولة - فصل إنشاء الغرفة عن الجيم) */
-          <div className="flex-1 flex flex-col items-center justify-between p-2 sm:p-4 relative overflow-y-auto w-full select-none font-sans no-pull-refresh overscroll-none">
-            {/* Ambient Background */}
-            <div
-              className="absolute inset-0 bg-cover bg-center -z-10 opacity-25 filter blur-sm scale-105 pointer-events-none select-none"
-              style={{ backgroundImage: `url('/classic_ludo_board.svg')` }}
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#02140e]/95 via-[#06241a]/90 to-slate-950/98 -z-10" />
-
-            <div className="w-full max-w-2xl flex flex-col gap-3 z-10 pb-4">
-
-              {/* 1. ROOM TOP BANNER & HEADER */}
-              <div className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-lg backdrop-blur-md">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-xl shadow">
-                    🏰
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <h2 className="text-xs sm:text-sm font-black text-white">{roomTitle}</h2>
-                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-1.5 py-0.5 rounded border border-emerald-500/30">
-                        #{roomId}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                      <span className="flex items-center gap-1 text-amber-300">
-                        <span>👑 المضيف:</span>
-                        <span className="font-bold">{roomHostName}</span>
-                      </span>
-                      {roomDeputyId && (
-                        <span className="flex items-center gap-1 text-cyan-300">
-                          <span>⭐ النائب معين</span>
-                        </span>
-                      )}
-                      <span className="text-amber-400 font-bold">🪙 رهان: {roomStake}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Back to Rooms Hall */}
-                <button
-                  type="button"
-                  onClick={() => setLobbyView('rooms')}
-                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <span>←</span>
-                  <span>{lang === 'ar' ? 'صالة الغرف' : 'Rooms Hall'}</span>
-                </button>
-              </div>
-
-              {/* 2. AUDIO STATION: LOCAL MUSIC FROM DEVICE + VOICE MIC */}
-              <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2.5 shadow-md">
-                {/* Local Music Controller */}
-                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!musicTrackName) {
-                        musicFileInputRef.current?.click();
-                      } else {
-                        setIsMusicModalOpen(true);
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow ${
-                      isPlayingMusic
-                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white animate-pulse border border-emerald-400'
-                        : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40'
-                    }`}
-                    title={lang === 'ar' ? 'تشغيل أو فتح مشغل الموسيقى' : 'Play / Open music player'}
-                  >
-                    <span>{isPlayingMusic ? '💿' : '🎵'}</span>
-                    <span className="truncate max-w-[130px]">
-                      {musicTrackName || (lang === 'ar' ? 'أغاني من جهازي' : 'Local Music')}
-                    </span>
-                  </button>
-
-                  {/* Pick Audio File */}
-                  <button
-                    type="button"
-                    onClick={() => musicFileInputRef.current?.click()}
-                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold border border-slate-700 transition-all cursor-pointer"
-                    title={lang === 'ar' ? 'اختيار أغنية من هاتفك أو جهازك' : 'Choose audio file from device'}
-                  >
-                    📂
-                  </button>
-
-                  {/* Volume Slider */}
-                  <div className="hidden sm:flex items-center gap-1 text-[10px] text-slate-400">
-                    <span>🔈</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={musicVolume}
-                      onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                      className="w-16 accent-amber-400 cursor-pointer h-1"
-                    />
-                  </div>
-                </div>
-
-                {/* Voice Mic Toggle */}
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
-                    isMicOn
-                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
-                      : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
-                  }`}
-                >
-                  <span>{isMicOn ? '🎙️' : '🔇'}</span>
-                  <span>{isMicOn ? (lang === 'ar' ? 'المايك نشط' : 'Mic On') : (lang === 'ar' ? 'مكتوم' : 'Muted')}</span>
-                </button>
-              </div>
-
-              {/* 3. THE 4 TABLE PLAYER SEATS */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-3.5 shadow-xl">
-                <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80 text-xs font-bold">
-                  <span className="text-amber-400 flex items-center gap-1.5">
-                    <span>🎲</span>
-                    <span>{lang === 'ar' ? 'مقاعد الطاولة (اللاعبين الأساسيين):' : 'Table Player Seats:'}</span>
-                  </span>
-                  <span className="text-slate-400 text-[10px]">
-                    {lang === 'ar' ? `المقاعد: ${playerCount} لاعبين` : `${playerCount} Players`}
-                  </span>
-                </div>
-
-                {/* 4 Corner Seats Grid */}
-                <div className="grid grid-cols-2 gap-2.5 pt-2.5">
-                  {(['blue', 'green', 'red', 'yellow'] as PlayerColor[]).map((color) => {
-                    const seat = tableSeats[color];
-                    const isBlue = color === 'blue';
-                    const isGreen = color === 'green';
-                    const isRed = color === 'red';
-
-                    const colorBg = isBlue
-                      ? 'border-blue-500/40 bg-blue-950/20'
-                      : isGreen
-                      ? 'border-emerald-500/40 bg-emerald-950/20'
-                      : isRed
-                      ? 'border-rose-500/40 bg-rose-950/20'
-                      : 'border-amber-500/40 bg-amber-950/20';
-
-                    const colorLabel = isBlue
-                      ? (lang === 'ar' ? 'المقعد الأزرق (المضيف)' : 'Blue (Host)')
-                      : isGreen
-                      ? (lang === 'ar' ? 'المقعد الأخضر' : 'Green')
-                      : isRed
-                      ? (lang === 'ar' ? 'المقعد الأحمر' : 'Red')
-                      : (lang === 'ar' ? 'المقعد الأصفر' : 'Yellow');
-
-                    return (
-                      <div
-                        key={color}
-                        className={`p-2.5 rounded-2xl border ${colorBg} flex flex-col justify-between gap-2 transition-all relative overflow-hidden`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-slate-400">{colorLabel}</span>
-                          {seat?.isHost && (
-                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-400/40">
-                              👑 صاحب الغرفة
-                            </span>
-                          )}
-                          {seat?.isDeputy && (
-                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded font-black border border-cyan-400/40">
-                              ⭐ نائب
-                            </span>
-                          )}
-                        </div>
-
-                        {seat ? (
-                          /* Occupied Seat */
-                          <div
-                            onClick={() => handleUserClick({
-                              id: seat.id,
-                              name: seat.name,
-                              avatar: seat.avatar,
-                              seatColor: color,
-                              isBot: seat.isBot,
-                              isHost: seat.isHost,
-                              isDeputy: seat.isDeputy,
-                            })}
-                            className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-slate-800/50 rounded-xl p-1 transition-all"
-                            title="إدارة العضو أو كتمه/ترقيته"
-                          >
-                            <div className="relative">
-                              <img
-                                src={seat.avatar}
-                                alt={seat.name}
-                                className="w-9 h-9 rounded-full border-2 border-white/30 bg-slate-900 object-cover"
-                              />
-                              <span className="absolute -bottom-1 -right-1 text-[9px] bg-slate-900 rounded-full px-0.5 border border-slate-700">
-                                {mutedUserIds.includes(seat.id) ? '🔇' : '🎙️'}
-                              </span>
-                              {(moderatorIds.includes(seat.id) || seat.isDeputy) && (
-                                <span className="absolute -top-1 -right-1 text-[9px]">⭐</span>
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-black text-white truncate flex items-center gap-1">
-                                <span>{seat.name}</span>
-                              </div>
-                              <div className="text-[9px] text-emerald-400 font-bold flex items-center gap-1">
-                                <span>●</span>
-                                <span>{seat.isBot ? 'روبوت ذكي 🤖' : 'لاعب جاهز ⚔️'}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Empty Seat */
-                          <div className="py-1.5 flex flex-col items-center justify-center text-center gap-1">
-                            <div className="w-8 h-8 rounded-full border border-dashed border-slate-700 flex items-center justify-center text-slate-500 text-sm">
-                              🪑
-                            </div>
-                            <span className="text-[9px] text-slate-500">{lang === 'ar' ? 'مقعد شاغر' : 'Empty Seat'}</span>
-                          </div>
-                        )}
-
-                        {/* Seat Action Buttons */}
-                        <div className="flex items-center gap-1 pt-1 border-t border-slate-800/60">
-                          {!seat ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleTakePlayerSeat(color)}
-                                className="flex-1 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-slate-950 text-[10px] font-black cursor-pointer transition-all"
-                              >
-                                {lang === 'ar' ? 'اجلس كلاعب ⚔️' : 'Sit Here ⚔️'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleBotOnSeat(color)}
-                                className="p-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer transition-all"
-                                title="إضافة روبوت"
-                              >
-                                🤖
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {isHost && !seat.isHost && !seat.isBot && !seat.isDeputy && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAssignDeputy(seat.id)}
-                                  className="flex-1 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-300 border border-cyan-500/40 text-[9px] font-black cursor-pointer transition-all"
-                                >
-                                  {lang === 'ar' ? 'تعيين كنائب ⭐' : 'Make Deputy ⭐'}
-                                </button>
-                              )}
-                              {seat.isBot && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleBotOnSeat(color)}
-                                  className="flex-1 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 text-[9px] font-bold cursor-pointer transition-all"
-                                >
-                                  {lang === 'ar' ? 'إزالة البوت ✕' : 'Remove Bot ✕'}
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 4. SPECTATOR VOICE SEATS (مقاعد المتفرجين الصوتية) */}
-              <div className="bg-slate-950/70 border border-purple-500/30 rounded-2xl p-2.5 flex flex-col gap-2">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-purple-300 flex items-center gap-1.5">
-                    <span>🎙️</span>
-                    <span>{lang === 'ar' ? 'مقاعد المتفرجين الصوتية (تشجيع ومايك):' : 'Spectator Voice Seats:'}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleJoinSpectatorSeats}
-                    className="text-[10px] text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 px-2.5 py-0.5 rounded-lg border border-purple-500/30 cursor-pointer transition-all font-bold"
-                  >
-                    {lang === 'ar' ? '+ اصعد لمقاعد المتفرجين' : '+ Join Spectators'}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar">
-                  {spectatorSeats.map((spec) => (
-                    <div
-                      key={spec.id}
-                      onClick={() => handleUserClick({
-                        id: spec.id,
-                        name: spec.name,
-                        avatar: spec.avatar,
-                        isSpectator: true,
-                        isDeputy: moderatorIds.includes(spec.id),
-                        isMuted: mutedUserIds.includes(spec.id),
-                      })}
-                      className="flex flex-col items-center gap-1 shrink-0 p-1.5 bg-slate-900/60 border border-purple-500/20 rounded-xl min-w-[70px] cursor-pointer hover:border-purple-400/50 hover:bg-purple-950/20 transition-all"
-                      title="إدارة العضو أو كتمه/ترقيته"
-                    >
-                      <div className="relative">
-                        <img
-                          src={spec.avatar}
-                          alt={spec.name}
-                          className="w-8 h-8 rounded-full border border-purple-400/50 bg-slate-950"
-                        />
-                        <span className="absolute -bottom-1 -right-1 text-[10px]">
-                          {mutedUserIds.includes(spec.id) ? '🔇' : (spec.isMicOn ? '🎙️' : '🔇')}
-                        </span>
-                        {moderatorIds.includes(spec.id) && (
-                          <span className="absolute -top-1 -right-1 text-[10px]">⭐</span>
-                        )}
-                      </div>
-                      <span className="text-[9px] text-slate-300 font-bold truncate max-w-[65px]">
-                        {spec.name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 5. MATCH LAUNCHER & HOST CONTROLLER (من داخل الغرفة فقط) */}
-              <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-3.5 shadow-2xl space-y-3">
-                {canControlMatch ? (
-                  <>
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                        <span>⚡</span>
-                        <span>{lang === 'ar' ? 'لوحة تحكم صاحب الغرفة والنائب:' : 'Room Host Controls:'}</span>
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-bold">
-                        {lang === 'ar' ? 'أنت تتحكم ببدء الجيم والقواعد 👑' : 'You control match launch 👑'}
-                      </span>
-                    </div>
-
-                    {/* Mode selection: 2 Players vs 4 Players */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setPlayerCount(2)}
-                        className={`py-2 rounded-xl border text-center transition-all cursor-pointer font-bold ${
-                          playerCount === 2
-                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 shadow'
-                            : 'bg-slate-900/60 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        ⚔️ {lang === 'ar' ? 'نمط زوجي (2 لاعبين 1v1)' : '2 Players (1v1)'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPlayerCount(4)}
-                        className={`py-2 rounded-xl border text-center transition-all cursor-pointer font-bold ${
-                          playerCount === 4
-                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 shadow'
-                            : 'bg-slate-900/60 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        👑 {lang === 'ar' ? 'نمط رباعي (4 لاعبين كامل)' : '4 Players (Full)'}
-                      </button>
-                    </div>
-
-                    {/* Board Theme / Skin Selector (اختيار ثيم الرقعة ومجرة الكواكب مباشرة) */}
-                    <div className="space-y-1.5 p-2 rounded-2xl bg-slate-900/80 border border-slate-800">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-300 flex items-center gap-1.5">
-                          <span>🎨</span>
-                          <span>{lang === 'ar' ? 'تصميم وثيم الرقعة (المود):' : 'Board Skin / Theme:'}</span>
-                        </span>
-                        <span className="text-[10px] text-amber-300 font-black">
-                          {BOARD_SKINS[selectedBoardSkin][lang === 'ar' ? 'nameAr' : 'nameEn']}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-1.5 pt-0.5">
-                        {(Object.keys(BOARD_SKINS) as BoardTheme[]).map((themeKey) => {
-                          const skin = BOARD_SKINS[themeKey];
-                          const isSelected = selectedBoardSkin === themeKey;
-                          return (
-                            <button
-                              key={themeKey}
-                              type="button"
-                              onClick={() => handleSelectTheme(themeKey)}
-                              className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
-                                isSelected
-                                  ? 'bg-amber-500/25 border-amber-400 text-amber-300 ring-1 ring-amber-400 shadow'
-                                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <div className="text-base">{skin.icon}</div>
-                              <div className="text-[9px] font-bold truncate mt-0.5">
-                                {lang === 'ar' ? skin.nameAr : skin.nameEn}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Solo / Bot Notice */}
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-2 text-[10px] text-amber-300/90 flex items-center gap-2">
-                      <span className="text-base">💡</span>
-                      <span>
-                        {lang === 'ar'
-                          ? 'لو جالس وحدك في الغرفة أو لم يكتمل باقي اللاعبين، سيتم تشغيل البوتات الذكية 🤖 تلقائياً لملء المقاعد واللعب معك فوراً!'
-                          : 'If you are alone or seats are empty, smart AI bots 🤖 will fill in and play immediately!'}
-                      </span>
-                    </div>
-
-                    {/* Hero Launch Button */}
-                    <button
-                      type="button"
-                      onClick={startMatchFromRoom}
-                      className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-sm rounded-2xl shadow-[0_0_30px_rgba(251,191,36,0.6)] active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-2 border border-amber-300"
-                    >
-                      <span>🚀</span>
-                      <span>{lang === 'ar' ? 'بدء الجيم الآن داخل الغرفة (Start Match)' : 'Launch Match in Room'}</span>
-                    </button>
-                  </>
-                ) : (
-                  /* Not host/deputy */
-                  <div className="p-3 text-center space-y-1">
-                    <div className="text-xs font-bold text-slate-300 flex items-center justify-center gap-1.5">
-                      <span>⏳</span>
-                      <span>{lang === 'ar' ? `بانتظار صاحب الغرفة (${roomHostName}) أو نائبه لبدء المباراة...` : 'Waiting for host to launch match...'}</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500">
-                      {lang === 'ar' ? 'استمتع بالدردشة وسماع الأغاني والتفاعل مع الحاضرين حتى تبدأ المعركة ☕' : 'Chat, enjoy local music & get ready!'}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-            </div>
-          </div>
-        )
+        ) : null
       ) : (
         /* Active Game Board - Lightweight Felt Background & 1:1 Mobile Fit */
         <div
@@ -4127,11 +4096,16 @@ function LudoApp() {
               style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               className="w-full flex items-center justify-between gap-1.5 overflow-x-auto overflow-y-hidden select-none cursor-grab active:cursor-grabbing py-0.5 px-1 no-scrollbar [&::-webkit-scrollbar]:hidden"
             >
-              {/* Level / Room Rank Badge */}
-              <div className="w-8 h-8 rounded-full bg-black/35 border border-emerald-400/50 flex flex-col items-center justify-center text-[9px] font-black text-amber-300 shrink-0 leading-none">
+              {/* Level / Room Rank & Quests Badge (clickable) */}
+              <button
+                type="button"
+                onClick={() => setShowRoomQuestsModal(true)}
+                className="w-8 h-8 rounded-full bg-black/45 hover:bg-amber-500/20 border border-emerald-400/60 flex flex-col items-center justify-center text-[9px] font-black text-amber-300 shrink-0 leading-none cursor-pointer active:scale-90 transition-transform"
+                title={lang === 'ar' ? 'مستوى الغرفة والمهام' : 'Room Level & Quests'}
+              >
                 <StarShieldIcon className="w-3 h-3 text-amber-300" />
-                <span>2</span>
-              </div>
+                <span>{calculateRoomLevel(roomXp).level}</span>
+              </button>
 
               {/* 6 Interactive Switchable Voice Mic Seats */}
               {voiceMicSlots.map((slot, slotIdx) => {
@@ -4248,6 +4222,18 @@ function LudoApp() {
                 {statusMessage}
               </div>
 
+              {/* Join Board Button (shown when guest got mic permission or room allows joining play) */}
+              {hasMicPermission && userRole === 'spectator' && !winner && (
+                <button
+                  type="button"
+                  onClick={handleParticipateInMatch}
+                  className="px-2 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] shadow shrink-0 cursor-pointer active:scale-95"
+                  title={lang === 'ar' ? 'المشاركة في اللعب على الطاولة' : 'Join Board Play'}
+                >
+                  ⚔️ {lang === 'ar' ? 'العب' : 'Play'}
+                </button>
+              )}
+
               {/* Side Settings Gear */}
               <button
                 type="button"
@@ -4258,6 +4244,31 @@ function LudoApp() {
                 <SettingsGearIcon className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Host/Admin Mic Approval Requests Bar */}
+            {canAccessSettings && micRequests.length > 0 && (
+              <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className="w-full flex items-center justify-between gap-2 px-2.5 py-1 rounded-xl bg-amber-950/90 border border-amber-400/60 text-[10px] shadow-md animate-fadeIn">
+                <span className="font-black text-amber-200 truncate">
+                  ✋ {micRequests[0].username} {lang === 'ar' ? `يطلب المايك #${micRequests[0].slotIndex + 1}` : `requests mic #${micRequests[0].slotIndex + 1}`}
+                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleApproveMicRequest(micRequests[0], true)}
+                    className="px-2 py-0.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black cursor-pointer"
+                  >
+                    ✓ {lang === 'ar' ? 'سماح' : 'Allow'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApproveMicRequest(micRequests[0], false)}
+                    className="px-2 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-black cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2. CENTER LUDO BOARD: Maximized 1:1 Square Board for Bigger Track Cells & Pawns */}
@@ -4322,8 +4333,9 @@ function LudoApp() {
                     </button>
                   ))}
                 </div>
-                <span className="text-[9px] text-slate-300/70">
-                  {lang === 'ar' ? 'غرفة #4082' : 'Room #4082'}
+                <span className="text-[9px] text-slate-300/70 flex items-center gap-1">
+                  {isRoomLocked && <span className="text-rose-300 font-bold">🔒</span>}
+                  <span>{lang === 'ar' ? `غرفة #${roomId.slice(-6)}` : `Room #${roomId.slice(-6)}`}</span>
                 </span>
               </div>
 
@@ -4493,11 +4505,15 @@ function LudoApp() {
                   <button
                     type="button"
                     onClick={() => setShowQuickChat(true)}
-                    className="h-9 px-3 rounded-full bg-black/45 border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition-transform cursor-pointer"
-                    title={lang === 'ar' ? 'دردشة سريعة' : 'Quick Chat'}
+                    className={`h-9 px-3 rounded-full border text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition-transform cursor-pointer ${
+                      isSelfChatMuted
+                        ? 'bg-rose-950/75 border-rose-500/60 text-rose-200'
+                        : 'bg-black/45 border-white/20 text-slate-200 hover:text-white'
+                    }`}
+                    title={isSelfChatMuted ? (lang === 'ar' ? 'مكتوم من الكتابة' : 'Chat Muted') : (lang === 'ar' ? 'دردشة سريعة' : 'Quick Chat')}
                   >
                     <ChatBubbleIcon className="w-4 h-4" />
-                    <span className="hidden sm:inline">{lang === 'ar' ? 'دردشة' : 'Chat'}</span>
+                    <span className="hidden sm:inline">{isSelfChatMuted ? '🔇' : lang === 'ar' ? 'دردشة' : 'Chat'}</span>
                   </button>
                 </div>
               </div>
@@ -4549,6 +4565,7 @@ function LudoApp() {
         onClose={() => setShowQuickChat(false)}
         quickInputText={quickInputText}
         setQuickInputText={setQuickInputText}
+        isChatMuted={isSelfChatMuted}
         onSendMessage={(txt) => {
           addChatMessage(txt, 'chat', userProfile?.username || 'Ali', true);
           playGiftSound('chime');
@@ -4659,57 +4676,85 @@ function LudoApp() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  {/* 1. Mute / Unmute */}
+                  {/* 1. Mic Audio Mute / Unmute */}
                   <button
                     type="button"
                     onClick={() => handleToggleMuteUser(selectedUserForModeration.id)}
-                    className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer ${
+                    className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer ${
                       selectedUserForModeration.isMuted
                         ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300 hover:bg-emerald-900/80'
                         : 'bg-rose-950/60 border-rose-600 text-rose-300 hover:bg-rose-900/80'
                     }`}
                   >
                     <MicIcon muted={!selectedUserForModeration.isMuted} className="w-4 h-4" />
-                    <span>{selectedUserForModeration.isMuted ? 'إلغاء الكتم' : 'كتم المايك'}</span>
+                    <span>{selectedUserForModeration.isMuted ? 'فتح المايك' : 'كتم المايك'}</span>
                   </button>
 
-                  {/* 2. Promote to Admin / Revoke */}
+                  {/* 2. Chat Mute / Unmute (stay in room, cannot type) */}
                   {!selectedUserForModeration.isHost && (
                     <button
                       type="button"
+                      onClick={() => handleToggleChatMuteUser(selectedUserForModeration.id)}
+                      className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer ${
+                        chatMutedUserIds.includes(selectedUserForModeration.id)
+                          ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300'
+                          : 'bg-amber-950/60 border-amber-600 text-amber-300'
+                      }`}
+                    >
+                      <span className="text-sm">{chatMutedUserIds.includes(selectedUserForModeration.id) ? '💬' : '🔇'}</span>
+                      <span>{chatMutedUserIds.includes(selectedUserForModeration.id) ? 'فتح الكتابة' : 'كتم الشات'}</span>
+                    </button>
+                  )}
+
+                  {/* 3. Drop from Mic */}
+                  {!selectedUserForModeration.isHost && (
+                    <button
+                      type="button"
+                      onClick={() => handleKickFromMicUser(selectedUserForModeration.id)}
+                      className="p-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer"
+                    >
+                      <span className="text-sm">⬇️</span>
+                      <span>إنزال من المايك</span>
+                    </button>
+                  )}
+
+                  {/* 4. Promote to Admin / Revoke (Owner only) */}
+                  {isHost && !selectedUserForModeration.isHost && !selectedUserForModeration.isBot && (
+                    <button
+                      type="button"
                       onClick={() => handleToggleAdminUser(selectedUserForModeration.id)}
-                      className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer ${
+                      className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer ${
                         selectedUserForModeration.isDeputy
                           ? 'bg-amber-950/60 border-amber-600 text-amber-300 hover:bg-amber-900/80'
                           : 'bg-cyan-950/60 border-cyan-600 text-cyan-300 hover:bg-cyan-900/80'
                       }`}
                     >
-                      <span className="text-base">{selectedUserForModeration.isDeputy ? '⭐' : '👑'}</span>
+                      <span className="text-sm">{selectedUserForModeration.isDeputy ? '⭐' : '👑'}</span>
                       <span>{selectedUserForModeration.isDeputy ? 'سحب الإشراف' : 'منح إشراف'}</span>
                     </button>
                   )}
 
-                  {/* 3. Kick from Room */}
+                  {/* 5. Kick from Room */}
                   {!selectedUserForModeration.isHost && (
                     <button
                       type="button"
                       onClick={() => handleKickUser(selectedUserForModeration.id)}
-                      className="p-2.5 rounded-xl border border-orange-600/70 bg-orange-950/60 hover:bg-orange-900/80 text-orange-300 flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer"
+                      className="p-2 rounded-xl border border-orange-600/70 bg-orange-950/60 hover:bg-orange-900/80 text-orange-300 flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer"
                     >
-                      <span className="text-base">🚪</span>
+                      <span className="text-sm">🚪</span>
                       <span>طرد من الغرفة</span>
                     </button>
                   )}
 
-                  {/* 4. Block / Ban */}
+                  {/* 6. Permanent Block / Ban */}
                   {!selectedUserForModeration.isHost && (
                     <button
                       type="button"
                       onClick={() => handleBlockUser(selectedUserForModeration.id)}
-                      className="p-2.5 rounded-xl border border-red-700 bg-red-950/70 hover:bg-red-900/90 text-red-300 flex flex-col items-center justify-center gap-1 text-xs font-black transition-all cursor-pointer"
+                      className="p-2 rounded-xl border border-red-700 bg-red-950/70 hover:bg-red-900/90 text-red-300 flex flex-col items-center justify-center gap-1 text-[11px] font-black transition-all cursor-pointer"
                     >
-                      <span className="text-base">⛔</span>
-                      <span>حظر (بلوك)</span>
+                      <span className="text-sm">⛔</span>
+                      <span>حظر دائم (بلوك)</span>
                     </button>
                   )}
                 </div>
@@ -4960,6 +5005,7 @@ function LudoApp() {
         isMuted={isMuted}
         onToggleMute={() => setIsMuted(prev => !prev)}
         isMicOn={isMicOn}
+        hasMicPermission={hasMicPermission || canAccessSettings || roomMicMode === 'all'}
         onToggleMic={toggleMic}
         musicTrackName={musicTrackName}
         isPlayingMusic={isPlayingMusic}
@@ -4969,15 +5015,32 @@ function LudoApp() {
         }}
         onOpenIntro={() => setShowCinematicIntro(true)}
         onOpenH2H={() => setShowH2HModal(true)}
-        gameStarted={gameStarted}
-        onReturnToRoom={returnToRoom}
         canAccessSettings={canAccessSettings}
+        isHost={isHost}
+        isRoomLocked={isRoomLocked}
+        onToggleRoomLock={handleToggleRoomLock}
         selectedBoardSkin={selectedBoardSkin}
         onSelectTheme={handleSelectTheme}
         roomMicMode={roomMicMode}
-        onToggleMicMode={() => setRoomMicMode(prev => prev === 'all' ? 'admins_only' : 'all')}
+        onCycleMicMode={() => {
+          setRoomMicMode(prev => prev === 'approval' ? 'all' : prev === 'all' ? 'admins_only' : 'approval');
+        }}
         onResetGame={resetGame}
         MicIconComponent={MicIcon}
+      />
+
+      <RoomQuestsModal
+        lang={lang}
+        open={showRoomQuestsModal}
+        onClose={() => setShowRoomQuestsModal(false)}
+        roomTitle={roomTitle}
+        roomHostName={roomHostName}
+        roomXp={roomXp}
+        roomMatches={roomMatchesCount}
+        roomGiftsSent={roomGiftsCount}
+        roomChatsSent={roomChatsCount}
+        claimedQuestIds={claimedRoomQuests}
+        onClaimQuest={handleClaimRoomQuest}
       />
 
       <RulesModal lang={lang} open={showRulesModal} onClose={() => setShowRulesModal(false)} />

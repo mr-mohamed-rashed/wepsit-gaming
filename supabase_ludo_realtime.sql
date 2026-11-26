@@ -13,8 +13,19 @@ CREATE TABLE IF NOT EXISTS public.ludo_rooms (
   win_rule TEXT NOT NULL DEFAULT 'all',
   status TEXT NOT NULL DEFAULT 'waiting',
   current_players INTEGER NOT NULL DEFAULT 1,
+  is_open BOOLEAN NOT NULL DEFAULT true,
+  room_level INTEGER NOT NULL DEFAULT 1,
+  room_xp INTEGER NOT NULL DEFAULT 0,
+  room_matches INTEGER NOT NULL DEFAULT 0,
+  banned_ids TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+ALTER TABLE public.ludo_rooms ADD COLUMN IF NOT EXISTS is_open BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.ludo_rooms ADD COLUMN IF NOT EXISTS room_level INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.ludo_rooms ADD COLUMN IF NOT EXISTS room_xp INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.ludo_rooms ADD COLUMN IF NOT EXISTS room_matches INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.ludo_rooms ADD COLUMN IF NOT EXISTS banned_ids TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
 
 ALTER TABLE public.ludo_rooms ENABLE ROW LEVEL SECURITY;
 
