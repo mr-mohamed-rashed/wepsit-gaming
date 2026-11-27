@@ -116,7 +116,7 @@ function LudoApp() {
   const [gameStarted, setGameStarted] = useState<boolean>(false); // Inside room screen vs Lobby
   const [matchActive, setMatchActive] = useState<boolean>(false); // Active Ludo match inside the open room
   const [myOwnerRoom, setMyOwnerRoom] = useState<PersistentOwnerRoom | null>(null);
-  const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(false);
+  const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(true);
   const [selectedBoardSkin, setSelectedBoardSkin] = useState<BoardTheme>(() => {
     if (querySkin && ['classic', 'space', 'underwater', 'ancient'].includes(querySkin)) {
       return querySkin;
