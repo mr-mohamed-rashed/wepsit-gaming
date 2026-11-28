@@ -904,6 +904,8 @@ function LudoApp() {
     yellow: 6,
   });
   const [rollingDicePlayer, setRollingDicePlayer] = useState<PlayerColor | null>(null);
+  const [isTurnTransitioning, setIsTurnTransitioning] = useState<boolean>(false);
+  const isTurnTransitioningRef = useRef<boolean>(false);
   const [turn, setTurn] = useState<PlayerColor>('red'); // You (red - bottom left) start first
 
   const handleTokenClickRef = useRef<(token: Token, fromRemote?: boolean, forcedDiceVal?: number) => void>(() => { });
@@ -2438,7 +2440,7 @@ function LudoApp() {
   handleTokenClickRef.current = handleTokenClick;
 
   const rollDice = (forcedVal?: number, fromRemote = false) => {
-    if (!matchActive || rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || winner) return;
+    if (!matchActive || rollingDicePlayer !== null || gameState !== 'waiting_roll' || isAnimatingRef.current || isTurnTransitioningRef.current || winner) return;
     if (
       !fromRemote &&
       isRealtimeConnected &&
@@ -2481,6 +2483,8 @@ function LudoApp() {
           setConsecutiveSixes(0);
           setExtraRolls(0);
           setRollingDicePlayer(null);
+          isTurnTransitioningRef.current = true;
+          setIsTurnTransitioning(true);
           playFailSound();
           setStatusMessage(
             lang === 'ar'
@@ -2494,6 +2498,8 @@ function LudoApp() {
             setConsecutiveSixes(0);
             setExtraRolls(0);
             setGameState('waiting_roll');
+            isTurnTransitioningRef.current = false;
+            setIsTurnTransitioning(false);
           }, 1800);
           return;
         } else {
@@ -2514,6 +2520,8 @@ function LudoApp() {
 
       if (validMoves.length === 0) {
         setRollingDicePlayer(null);
+        isTurnTransitioningRef.current = true;
+        setIsTurnTransitioning(true);
         setTimeout(() => {
           const newExtraRolls = extraRolls + (finalVal === 6 ? 1 : 0);
           if (newExtraRolls > 0) {
@@ -2528,7 +2536,9 @@ function LudoApp() {
             setStatusMessage(lang === 'ar' ? 'دور اللاعب التالي...' : 'Next player turn...');
             setGameState('waiting_roll');
           }
-        }, 1500);
+          isTurnTransitioningRef.current = false;
+          setIsTurnTransitioning(false);
+        }, 1200);
       } else if (allSamePosition) {
         setRollingDicePlayer(null);
         setGameState('waiting_move');
@@ -2550,7 +2560,7 @@ function LudoApp() {
 
   // Bot autoplay logic (runs on Host, or earliest online peer when Host is absent, or offline)
   useEffect(() => {
-    if (gameStarted && matchActive && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !winner && canDriveBots) {
+    if (gameStarted && matchActive && playerConfig[turn] === 'bot' && rollingDicePlayer === null && !isTurnTransitioning && !winner && canDriveBots) {
       if (gameState === 'waiting_roll') {
         const timer = setTimeout(() => {
           rollDice();
@@ -2573,13 +2583,13 @@ function LudoApp() {
         return () => clearTimeout(timer);
       }
     }
-  }, [turn, rollingDicePlayer, gameStarted, matchActive, playerConfig, gameState, diceValues, winner, canDriveBots]);
+  }, [turn, rollingDicePlayer, isTurnTransitioning, gameStarted, matchActive, playerConfig, gameState, diceValues, winner, canDriveBots]);
 
   // ⏱️ Fast Turn Countdown Timer (10 seconds total, CSS-driven 60fps ring + single timeout for zero React re-renders)
   const TURN_TIMEOUT_SECONDS = 10;
 
   useEffect(() => {
-    if (!gameStarted || !matchActive || winner || isAnimating) return;
+    if (!gameStarted || !matchActive || winner || isAnimating || isTurnTransitioning) return;
     const isMyControlledTurn =
       playerConfig[turn] === 'bot'
         ? canDriveBots
@@ -2608,7 +2618,7 @@ function LudoApp() {
     }, TURN_TIMEOUT_SECONDS * 1000);
 
     return () => clearTimeout(timeout);
-  }, [gameStarted, matchActive, winner, isAnimating, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, canDriveBots, mySeatColor]);
+  }, [gameStarted, matchActive, winner, isAnimating, isTurnTransitioning, gameState, rollingDicePlayer, turn, diceValues, isRealtimeConnected, canDriveBots, mySeatColor]);
 
   const SpaceToken = useMemo(() => {
     const theme = selectedBoardSkin || 'classic';
@@ -3522,7 +3532,7 @@ function LudoApp() {
     const isMine = mySeatColor === playerColor;
     const isRolling = rollingDicePlayer === playerColor;
     const val = diceValues[playerColor] || 1;
-    const canClick = isTurn && isMine && gameState === 'waiting_roll' && rollingDicePlayer === null && !winner;
+    const canClick = isTurn && isMine && gameState === 'waiting_roll' && rollingDicePlayer === null && !isTurnTransitioning && !winner;
 
     // 3D Cube Rotation map to orient the active face with subtle isometric depth
     const faceRotations: Record<number, string> = {
