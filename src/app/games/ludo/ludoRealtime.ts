@@ -19,6 +19,8 @@ export interface LiveLobbyRoom {
   roomXp?: number;
   roomMatches?: number;
   bannedIds?: string[];
+  backgroundId?: string;
+  announcement?: string;
   playersJoined?: Array<{
     id: string;
     username: string;
@@ -764,6 +766,8 @@ export interface PersistentOwnerRoom {
   roomXp: number;
   roomMatches: number;
   bannedIds: string[];
+  backgroundId?: string;
+  announcement?: string;
   updatedAt: number;
 }
 
@@ -794,6 +798,8 @@ export function saveOwnerRoomLocal(room: PersistentOwnerRoom) {
         roomXp: room.roomXp,
         roomMatches: room.roomMatches,
         bannedIds: room.bannedIds,
+        backgroundId: room.backgroundId,
+        announcement: room.announcement,
       })
     );
   } catch {}
@@ -829,6 +835,8 @@ export async function fetchRoomMetaFromServer(roomId: string): Promise<Partial<P
         roomXp: Number(data.room_xp || 0),
         roomMatches: Number(data.room_matches || 0),
         bannedIds: Array.isArray(data.banned_ids) ? data.banned_ids : [],
+        backgroundId: data.background_id || localRaw?.backgroundId,
+        announcement: data.announcement || localRaw?.announcement,
       };
     }
   } catch {}
@@ -857,6 +865,8 @@ export async function saveRoomMetaToServer(room: PersistentOwnerRoom) {
       room_xp: room.roomXp,
       room_matches: room.roomMatches,
       banned_ids: room.bannedIds,
+      background_id: room.backgroundId,
+      announcement: room.announcement,
       updated_at: new Date().toISOString(),
     });
   } catch {}

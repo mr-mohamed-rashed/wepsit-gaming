@@ -10,6 +10,7 @@ import InteractionPanel from './InteractionPanel';
 import StakeSelectorModal, { GameTableOption, GHOST_BOTS } from './StakeSelectorModal';
 import LudoRoomModal, { LudoRoomConfig } from './LudoRoomModal';
 import CafeRoomModal, { CafeGameKey, CafeRoomConfig } from './CafeRoomModal';
+import { MythicSplashScreenIntro } from '@/app/games/ludo/ludoSplashIntro';
 import { GAMES_CONFIG } from '@/config/gamesConfig';
 
 interface DashboardProps {
@@ -55,6 +56,7 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
   const [showLudoRoomModal, setShowLudoRoomModal] = useState(false);
   const [ludoRoomConfig, setLudoRoomConfig] = useState<LudoRoomConfig | null>(null);
   const [showCafeRoomModal, setShowCafeRoomModal] = useState(false);
+  const [showCinematicIntro, setShowCinematicIntro] = useState(false);
   const [selectedCafeGameKey, setSelectedCafeGameKey] = useState<CafeGameKey>('ludo');
   const [cafeRoomConfig, setCafeRoomConfig] = useState<CafeRoomConfig | null>(null);
   const [activeDrawerTab, setActiveDrawerTab] = useState<'level' | 'quests' | 'chat' | null>(null);
@@ -497,7 +499,8 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
 
     if (cafeMap[gameId]) {
       setSelectedCafeGameKey(cafeMap[gameId]);
-      setShowCafeRoomModal(true);
+      // Play cinematic game intro ("الدخلة") first before opening rooms lobby
+      setShowCinematicIntro(true);
       return;
     }
 
@@ -840,7 +843,9 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
       const hostId = encodeURIComponent(cafeRoomConfig?.hostId || p.id);
       const hostName = encodeURIComponent(cafeRoomConfig?.hostName || p.username);
       const hostAvatar = encodeURIComponent(cafeRoomConfig?.hostAvatar || p.avatar_url || '');
-      return `/games/ludo?userId=${p.id}&username=${encodeURIComponent(p.username)}&avatar=${encodeURIComponent(p.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomId=${roomIdParam}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}&goldCoins=${p.gold_coins}`;
+      const skinParam = cafeRoomConfig?.backgroundId ? `&skin=${encodeURIComponent(cafeRoomConfig.backgroundId)}&theme=${encodeURIComponent(cafeRoomConfig.backgroundId)}` : '';
+      const announceParam = cafeRoomConfig?.announcement ? `&announcement=${encodeURIComponent(cafeRoomConfig.announcement)}` : '';
+      return `/games/ludo?userId=${p.id}&username=${encodeURIComponent(p.username)}&avatar=${encodeURIComponent(p.avatar_url || '')}&lang=${lang}&autoStart=true&role=${role}&players=${players}&pieces=${pieces}&winRule=${winRule}&stake=${stake}&roomId=${roomIdParam}&roomName=${roomName}&isHost=${isHost}&hostId=${hostId}&hostName=${hostName}&hostAvatar=${hostAvatar}&goldCoins=${p.gold_coins}${skinParam}${announceParam}`;
     }
 
     if (['domino', 'backgammon', 'chess', 'uno', 'estimation'].includes(activeGame)) {
@@ -1561,6 +1566,18 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
         />
       )}
 
+      {/* Cinematic Game Splash Intro ("الدخلة") */}
+      {showCinematicIntro && (
+        <MythicSplashScreenIntro
+          lang={lang}
+          isMuted={false}
+          onComplete={() => {
+            setShowCinematicIntro(false);
+            setShowCafeRoomModal(true);
+          }}
+        />
+      )}
+
       {/* Cafe Games Unified Table & Room Selector Modal (Ludo, Domino, Backgammon, Chess, Uno, Estimation) */}
       {showCafeRoomModal && (
         <CafeRoomModal
@@ -1568,6 +1585,10 @@ export default function Dashboard({ profile, dailyQuest, onUpdate, onLogout, add
           profile={profile}
           onClose={() => setShowCafeRoomModal(false)}
           onStartGame={handleStartCafeGame}
+          onOpenIntro={() => {
+            setShowCafeRoomModal(false);
+            setShowCinematicIntro(true);
+          }}
           addToast={addToast}
           lang={lang}
         />
