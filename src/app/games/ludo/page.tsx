@@ -263,7 +263,7 @@ function LudoApp() {
 
   const [fillEmptyWithBots, setFillEmptyWithBots] = useState<boolean>(true);
   const [tableSeats, setTableSeats] = useState<{ [key in PlayerColor]: RoomSeatUser | null }>(() => ({
-    blue:
+    red:
       queryIsHost && queryRole === 'player'
         ? {
             id: queryUserId || '12842582',
@@ -276,7 +276,7 @@ function LudoApp() {
           }
         : null,
     green: null,
-    red: null,
+    blue: null,
     yellow: null,
   }));
 
@@ -362,7 +362,7 @@ function LudoApp() {
       senderId: myId,
       username: myName,
       avatar: myAvatar,
-      color: mySeatColor || 'blue',
+      color: mySeatColor || 'red',
       seatIndex: slotIndex,
       isMuted: isMicMuted,
     });
@@ -805,7 +805,7 @@ function LudoApp() {
     totalMatches: 0,
     playerWins: 0,
     opponentWins: 0,
-    byColor: { red: 0, green: 0, yellow: 0 },
+    byColor: { red: 0, green: 0, yellow: 0, blue: 0 },
     streak: 0,
     history: []
   });
@@ -821,14 +821,14 @@ function LudoApp() {
   const [playerConfig, setPlayerConfig] = useState<{ [key in PlayerColor]: 'human' | 'bot' | 'none' }>(() => {
     if (queryRole === 'spectator') {
       if (initialPlayerCount === 2) {
-        return { blue: 'bot', green: 'bot', red: 'none', yellow: 'none' };
+        return { red: 'bot', yellow: 'bot', green: 'none', blue: 'none' };
       }
-      return { blue: 'bot', green: 'bot', red: 'bot', yellow: 'bot' };
+      return { red: 'bot', green: 'bot', yellow: 'bot', blue: 'bot' };
     }
     if (initialPlayerCount === 2) {
-      return { blue: 'human', green: 'bot', red: 'none', yellow: 'none' };
+      return { red: 'human', yellow: 'bot', green: 'none', blue: 'none' };
     }
-    return { blue: 'human', green: 'bot', red: 'bot', yellow: 'bot' };
+    return { red: 'human', green: 'bot', yellow: 'bot', blue: 'bot' };
   });
 
   const [userProfile, setUserProfile] = useState<any>(() => {
@@ -904,7 +904,7 @@ function LudoApp() {
     yellow: 6,
   });
   const [rollingDicePlayer, setRollingDicePlayer] = useState<PlayerColor | null>(null);
-  const [turn, setTurn] = useState<PlayerColor>('blue'); // You (blue) start first
+  const [turn, setTurn] = useState<PlayerColor>('red'); // You (red - bottom left) start first
 
   const handleTokenClickRef = useRef<(token: Token, fromRemote?: boolean, forcedDiceVal?: number) => void>(() => { });
 
@@ -990,7 +990,7 @@ function LudoApp() {
 
   const mySeatColor: PlayerColor | null = useMemo(() => {
     const myId = userProfile?.id;
-    const colors: PlayerColor[] = ['blue', 'green', 'red', 'yellow'];
+    const colors: PlayerColor[] = ['red', 'green', 'yellow', 'blue'];
     for (const c of colors) {
       if (tableSeats[c]?.id === myId) return c;
     }
@@ -1000,12 +1000,12 @@ function LudoApp() {
   const getPlayerName = (color: PlayerColor) => {
     if (tableSeats[color]?.name) return tableSeats[color]!.name;
     if (playerConfig[color] === 'human') {
-      if (color === 'blue') return userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)');
-      if (color === 'red') return lang === 'ar' ? 'اللاعب 2 (الأحمر)' : 'Player 2 (Red)';
+      if (color === 'red') return userProfile?.username || (lang === 'ar' ? 'أنت (الأحمر)' : 'You (Red)');
+      if (color === 'yellow') return lang === 'ar' ? 'اللاعب 2 (الأصفر)' : 'Player 2 (Yellow)';
       if (color === 'green') return lang === 'ar' ? 'اللاعب 3 (الأخضر)' : 'Player 3 (Green)';
-      return lang === 'ar' ? 'اللاعب 4 (الأصفر)' : 'Player 4 (Yellow)';
+      return lang === 'ar' ? 'اللاعب 4 (الأزرق)' : 'Player 4 (Blue)';
     } else if (playerConfig[color] === 'bot') {
-      if (color === 'red') return lang === 'ar' ? 'الأحمر (روبوت)' : 'Red (Bot)';
+      if (color === 'red') return lang === 'ar' ? 'الساحر (روبوت)' : 'Red (Bot)';
       if (color === 'green') return lang === 'ar' ? 'الأخضر (روبوت)' : 'Green (Bot)';
       if (color === 'yellow') return lang === 'ar' ? 'الأصفر (روبوت)' : 'Yellow (Bot)';
       return lang === 'ar' ? 'الأزرق (روبوت)' : 'Blue (Bot)';
@@ -1014,7 +1014,7 @@ function LudoApp() {
   };
 
   const getNextActivePlayer = (current: PlayerColor): PlayerColor => {
-    const sequence: PlayerColor[] = ['blue', 'red', 'green', 'yellow'];
+    const sequence: PlayerColor[] = ['red', 'green', 'yellow', 'blue'];
     let idx = sequence.indexOf(current);
     for (let i = 1; i <= 4; i++) {
       const nextColor = sequence[(idx + i) % 4];
@@ -1030,25 +1030,25 @@ function LudoApp() {
       setGameStarted(true);
       const isSpectator = userRole === 'spectator';
       const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
-        blue: isSpectator ? 'bot' : 'human',
+        red: isSpectator ? 'bot' : 'human',
         green: 'none',
-        red: 'none',
+        blue: 'none',
         yellow: 'none',
       };
 
       if (playerCount === 2) {
-        config.green = 'bot'; // Opposite player
+        config.yellow = 'bot'; // Opposite player
       } else if (playerCount === 3) {
         config.green = 'bot';
-        config.red = 'bot';
+        config.yellow = 'bot';
       } else {
         config.green = 'bot';
-        config.red = 'bot';
         config.yellow = 'bot';
+        config.blue = 'bot';
       }
 
       setPlayerConfig(config);
-      setTurn('blue');
+      setTurn('red');
       setConsecutiveSixes(0);
       setExtraRolls(0);
       setWinner(null);
@@ -1204,8 +1204,8 @@ function LudoApp() {
   };
 
   const handleParticipateInMatch = () => {
-    const order: PlayerColor[] = playerCount === 2 ? ['blue', 'green'] : ['blue', 'green', 'red', 'yellow'];
-    const targetColor = order.find(c => !tableSeats[c]) || order.find(c => tableSeats[c]?.isBot) || 'green';
+    const order: PlayerColor[] = playerCount === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'];
+    const targetColor = order.find(c => !tableSeats[c]) || order.find(c => tableSeats[c]?.isBot) || 'red';
     handleTakePlayerSeat(targetColor);
   };
 
@@ -1310,7 +1310,7 @@ function LudoApp() {
     setUserRole(amIHost ? 'player' : role);
 
     setTableSeats({
-      blue:
+      red:
         amIHost
           ? {
               id: resolvedHostId,
@@ -1322,7 +1322,7 @@ function LudoApp() {
             }
           : null,
       green: null,
-      red: null,
+      blue: null,
       yellow: null,
     });
     setGameStarted(true);
@@ -1372,9 +1372,9 @@ function LudoApp() {
     setRoomDeputyId(null);
 
     setTableSeats({
-      blue: role === 'player' ? { id: myId, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: true, isDeputy: false } : null,
+      red: role === 'player' ? { id: myId, name: userProfile.username, avatar: userProfile.avatar_url || '/laugh_emote.png', isBot: false, isHost: true, isDeputy: false } : null,
       green: null,
-      red: null,
+      blue: null,
       yellow: null,
     });
     setGameStarted(true);
@@ -1447,7 +1447,7 @@ function LudoApp() {
       });
     }
     if (matchActive) {
-      const remainingActive = (['blue', 'red', 'green', 'yellow'] as PlayerColor[]).filter(
+      const remainingActive = (['red', 'green', 'yellow', 'blue'] as PlayerColor[]).filter(
         c => c !== color && playerConfig[c] !== 'none'
       );
       setPlayerConfig(prev => ({ ...prev, [color]: 'none' }));
@@ -1537,7 +1537,7 @@ function LudoApp() {
       ...(overrideSeats || tableSeats),
     };
 
-    const allColors: PlayerColor[] = ['blue', 'green', 'red', 'yellow'];
+    const allColors: PlayerColor[] = ['red', 'green', 'yellow', 'blue'];
     const occupiedColors = allColors.filter(c => workingSeats[c] !== null);
     const shouldAutoFill = !overrideSeats && (fillEmptyWithBots || occupiedColors.length < 2);
 
@@ -1545,7 +1545,7 @@ function LudoApp() {
       activePlayers === 2
         ? occupiedColors.length >= 2
           ? occupiedColors.slice(0, 2)
-          : (['blue', 'green'] as PlayerColor[])
+          : (['red', 'yellow'] as PlayerColor[])
         : allColors;
 
     if (shouldAutoFill) {
@@ -1571,10 +1571,10 @@ function LudoApp() {
     }
 
     const config: { [key in PlayerColor]: 'human' | 'bot' | 'none' } = {
-      blue: 'none',
-      green: 'none',
       red: 'none',
+      green: 'none',
       yellow: 'none',
+      blue: 'none',
     };
 
     allColors.forEach((c) => {
@@ -1586,7 +1586,7 @@ function LudoApp() {
       }
     });
 
-    const firstTurnColor = (['blue', 'red', 'green', 'yellow'] as PlayerColor[]).find(c => config[c] !== 'none') || 'blue';
+    const firstTurnColor = (['red', 'green', 'yellow', 'blue'] as PlayerColor[]).find(c => config[c] !== 'none') || 'red';
 
     setTableSeats(workingSeats);
     setPlayerConfig(config);
@@ -2247,7 +2247,7 @@ function LudoApp() {
 
         // Update Persistent Head-to-Head record
         setH2hRecord(prev => {
-          const isPlayer = winnerColor === 'blue';
+          const isPlayer = winnerColor === (mySeatColor || 'red');
           const newRecord: H2HRecord = {
             totalMatches: prev.totalMatches + 1,
             playerWins: prev.playerWins + (isPlayer ? 1 : 0),
@@ -2256,6 +2256,7 @@ function LudoApp() {
               red: (prev.byColor?.red || 0) + (winnerColor === 'red' ? 1 : 0),
               green: (prev.byColor?.green || 0) + (winnerColor === 'green' ? 1 : 0),
               yellow: (prev.byColor?.yellow || 0) + (winnerColor === 'yellow' ? 1 : 0),
+              blue: ((prev.byColor as any)?.blue || 0) + (winnerColor === 'blue' ? 1 : 0),
             },
             streak: isPlayer ? (prev.streak || 0) + 1 : 0,
             history: [
@@ -2512,8 +2513,8 @@ function LudoApp() {
       const allSamePosition = validMoves.length > 0 && validMoves.every(t => t.position === validMoves[0].position);
 
       if (validMoves.length === 0) {
+        setRollingDicePlayer(null);
         setTimeout(() => {
-          setRollingDicePlayer(null);
           const newExtraRolls = extraRolls + (finalVal === 6 ? 1 : 0);
           if (newExtraRolls > 0) {
             setExtraRolls(newExtraRolls - 1);
@@ -3380,8 +3381,8 @@ function LudoApp() {
     void roomRealtimeRef.current?.sendEvent({
       type: 'gift_sent',
       senderId: userProfile?.id || 'guest',
-      senderName: getPlayerName(mySeatColor || 'blue'),
-      senderColor: mySeatColor || 'blue',
+      senderName: getPlayerName(mySeatColor || 'red'),
+      senderColor: mySeatColor || 'red',
       targetColor,
       giftId: gift.id,
       emoji: gift.icon,
@@ -3394,7 +3395,7 @@ function LudoApp() {
     setSelectedGiftTarget(null);
 
     // Floating deduction text on sender corner
-    const senderCol = mySeatColor || 'blue';
+    const senderCol = mySeatColor || 'red';
     setFloatingCoinText({
       player: senderCol,
       text: `-${gift.cost} 🪙`
@@ -3720,7 +3721,7 @@ function LudoApp() {
   const renderCornerBase = (baseColor: PlayerColor) => {
     const isPresent = playerConfig[baseColor] !== 'none';
     const isTurn = turn === baseColor;
-    const isBlue = baseColor === 'blue';
+    const isMySeat = baseColor === (mySeatColor || 'red');
     const isBot = playerConfig[baseColor] === 'bot';
 
     let gridStyle = { gridRow: '1 / 7', gridColumn: '1 / 7' };
@@ -3743,8 +3744,8 @@ function LudoApp() {
         border: isSpace ? 'border-emerald-400/80' : 'border-emerald-500/90',
         glow: 'shadow-md',
         avatarBorder: 'border-emerald-300',
-        defaultName: 'Ali Ali',
-        botName: lang === 'ar' ? 'الأخضر (روبوت)' : 'Green (Bot)',
+        defaultName: 'محمود',
+        botName: lang === 'ar' ? 'محمود (بوت)' : 'Green (Bot)',
         avatarUrl: '/dragon_emote.png',
         fallbackAvatar: '🟢',
       },
@@ -3753,8 +3754,8 @@ function LudoApp() {
         border: isSpace ? 'border-amber-400/80' : 'border-amber-400/90',
         glow: 'shadow-md',
         avatarBorder: 'border-amber-200',
-        defaultName: 'محمود',
-        botName: lang === 'ar' ? 'الأصفر (روبوت)' : 'Yellow (Bot)',
+        defaultName: 'صقر',
+        botName: lang === 'ar' ? 'صقر (بوت)' : 'Yellow (Bot)',
         avatarUrl: '/kaizen_emoji_pack.png',
         fallbackAvatar: '🟡',
       },
@@ -3763,9 +3764,9 @@ function LudoApp() {
         border: isSpace ? 'border-rose-400/80' : 'border-rose-400/90',
         glow: 'shadow-md',
         avatarBorder: 'border-rose-300',
-        defaultName: 'الساحر',
-        botName: lang === 'ar' ? 'الأحمر (روبوت)' : 'Red (Bot)',
-        avatarUrl: '/laugh_emote.png',
+        defaultName: userProfile?.username || (lang === 'ar' ? 'أنت (الأحمر)' : 'You (Red)'),
+        botName: lang === 'ar' ? 'الساحر (روبوت)' : 'Red (Bot)',
+        avatarUrl: userProfile?.avatar_url || '/laugh_emote.png',
         fallbackAvatar: '🔴',
       },
       blue: {
@@ -3773,9 +3774,9 @@ function LudoApp() {
         border: isSpace ? 'border-blue-400/80' : 'border-blue-400/90',
         glow: 'shadow-md',
         avatarBorder: 'border-cyan-300',
-        defaultName: userProfile?.username || (lang === 'ar' ? 'أنت (الأزرق)' : 'You (Blue)'),
-        botName: lang === 'ar' ? 'الأزرق (روبوت)' : 'Blue (Bot)',
-        avatarUrl: userProfile?.avatar_url || '/Ali.jpg',
+        defaultName: 'النمر',
+        botName: lang === 'ar' ? 'النمر (بوت)' : 'Blue (Bot)',
+        avatarUrl: '/Ali.jpg',
         fallbackAvatar: '🔵',
       },
     }[baseColor];
@@ -3822,7 +3823,7 @@ function LudoApp() {
                         e.stopPropagation();
                         const seatUser = tableSeats[baseColor];
                         handleUserClick({
-                          id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                          id: seatUser?.id || (isMySeat ? (userProfile?.id || '12842582') : `user-${baseColor}`),
                           name: seatUser?.name || dispName,
                           avatar: seatUser?.avatar || avatarImg,
                           seatColor: baseColor,
@@ -3881,7 +3882,7 @@ function LudoApp() {
                       </div>
                     </div>
 
-                    {!isBlue && (
+                    {!isMySeat && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -3905,7 +3906,7 @@ function LudoApp() {
                       e.stopPropagation();
                       const seatUser = tableSeats[baseColor];
                       handleUserClick({
-                        id: seatUser?.id || (isBlue ? (userProfile?.id || '12842582') : `user-${baseColor}`),
+                        id: seatUser?.id || (isMySeat ? (userProfile?.id || '12842582') : `user-${baseColor}`),
                         name: seatUser?.name || dispName,
                         avatar: seatUser?.avatar || avatarImg,
                         seatColor: baseColor,
@@ -3949,21 +3950,21 @@ function LudoApp() {
       <div className="absolute -bottom-14 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/90 border border-slate-700/60 px-3 py-1.5 rounded-full shadow-2xl z-40 backdrop-blur-md">
         <span className="text-[10px] font-bold text-slate-400 hidden sm:inline">{lang === 'ar' ? 'تفاعل:' : 'Emote:'}</span>
         <button
-          onClick={() => triggerPlayerEmote('blue', 'wizard')}
+          onClick={() => triggerPlayerEmote(mySeatColor || 'red', 'wizard')}
           className="text-lg hover:scale-125 transition-transform active:scale-95"
           title="سحر أسطوري"
         >
           🧙‍♂️
         </button>
         <button
-          onClick={() => triggerPlayerEmote('blue', 'iron_hero')}
+          onClick={() => triggerPlayerEmote(mySeatColor || 'red', 'iron_hero')}
           className="text-lg hover:scale-125 transition-transform active:scale-95"
           title="دفاع حديدي"
         >
           🛡️
         </button>
         <button
-          onClick={() => triggerPlayerEmote('blue', 'ranger')}
+          onClick={() => triggerPlayerEmote(mySeatColor || 'red', 'ranger')}
           className="text-lg hover:scale-125 transition-transform active:scale-95"
           title="سهم دقيق"
         >
@@ -4874,10 +4875,10 @@ function LudoApp() {
                   <div className="grid grid-cols-2 gap-1.5">
                     {(
                       [
-                        { color: 'green' as PlayerColor, labelAr: 'الأخضر', labelEn: 'Green', cls: 'border-emerald-500/50 bg-emerald-950/35', dot: 'bg-emerald-500' },
-                        { color: 'yellow' as PlayerColor, labelAr: 'الأصفر', labelEn: 'Yellow', cls: 'border-amber-400/50 bg-amber-950/35', dot: 'bg-amber-400' },
-                        { color: 'red' as PlayerColor, labelAr: 'الأحمر', labelEn: 'Red', cls: 'border-rose-500/50 bg-rose-950/35', dot: 'bg-rose-500' },
-                        { color: 'blue' as PlayerColor, labelAr: 'الأزرق', labelEn: 'Blue', cls: 'border-blue-500/50 bg-blue-950/35', dot: 'bg-blue-500' },
+                        { color: 'red' as PlayerColor, labelAr: 'الأحمر (تحت شمال)', labelEn: 'Red (Bottom-Left)', cls: 'border-rose-500/50 bg-rose-950/35', dot: 'bg-rose-500' },
+                        { color: 'yellow' as PlayerColor, labelAr: 'الأصفر (فوق يمين)', labelEn: 'Yellow (Top-Right)', cls: 'border-amber-400/50 bg-amber-950/35', dot: 'bg-amber-400' },
+                        { color: 'green' as PlayerColor, labelAr: 'الأخضر (فوق شمال)', labelEn: 'Green (Top-Left)', cls: 'border-emerald-500/50 bg-emerald-950/35', dot: 'bg-emerald-500' },
+                        { color: 'blue' as PlayerColor, labelAr: 'الأزرق (تحت يمين)', labelEn: 'Blue (Bottom-Right)', cls: 'border-blue-500/50 bg-blue-950/35', dot: 'bg-blue-500' },
                       ] as const
                     ).map((slot) => {
                       const occupant = tableSeats[slot.color];
@@ -5076,7 +5077,7 @@ function LudoApp() {
                           type="button"
                           onClick={() => {
                             addChatMessage(`${userProfile?.username || 'Ali'}: أرسل ملصق ${stk.name} ✨`, 'chat', userProfile?.username || 'Ali');
-                            triggerPlayerEmote('blue', 'wizard');
+                            triggerPlayerEmote(mySeatColor || 'red', 'wizard');
                             setShowEmotesBar(false);
                             playGiftSound('chime');
                           }}
@@ -5309,7 +5310,7 @@ function LudoApp() {
             </div>
 
             {/* 🕊️⚔️ Peace & War Gift Box Action on Profile */}
-            {selectedUserForModeration.seatColor && selectedUserForModeration.seatColor !== 'blue' && (
+            {selectedUserForModeration.seatColor && selectedUserForModeration.seatColor !== (mySeatColor || 'red') && (
               <button
                 type="button"
                 onClick={() => {

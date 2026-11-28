@@ -225,9 +225,9 @@ export function H2HModal({
               <span className="text-emerald-400 font-bold block">🟢 الأخضر</span>
               <span className="font-black text-white text-sm">{h2hRecord.byColor?.green || 0}</span>
             </div>
-            <div className="p-2 rounded-xl bg-rose-950/30 border border-rose-500/30">
-              <span className="text-rose-400 font-bold block">🔴 الأحمر</span>
-              <span className="font-black text-white text-sm">{h2hRecord.byColor?.red || 0}</span>
+            <div className="p-2 rounded-xl bg-cyan-950/30 border border-cyan-500/30">
+              <span className="text-cyan-400 font-bold block">🔵 الأزرق</span>
+              <span className="font-black text-white text-sm">{h2hRecord.byColor?.blue || 0}</span>
             </div>
             <div className="p-2 rounded-xl bg-amber-950/30 border border-amber-500/30">
               <span className="text-amber-400 font-bold block">🟡 الأصفر</span>
@@ -254,7 +254,7 @@ export function H2HModal({
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500 font-bold">#{h2hRecord.history.length - idx}</span>
                     <span className="font-black text-slate-200">
-                      {m.winner === 'blue' ? '👑 ' : '💀 '}
+                      {m.winner === 'red' || (m.winner === 'blue' && !m.winnerName.includes('بوت')) ? '👑 ' : '💀 '}
                       {m.winnerName}
                     </span>
                   </div>

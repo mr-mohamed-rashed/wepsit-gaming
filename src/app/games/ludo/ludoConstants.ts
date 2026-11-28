@@ -207,7 +207,7 @@ export interface H2HRecord {
   totalMatches: number;
   playerWins: number;
   opponentWins: number;
-  byColor: { red: number; green: number; yellow: number };
+  byColor: { red?: number; green?: number; yellow?: number; blue?: number };
   streak: number;
   history: Array<{
     id: string;
